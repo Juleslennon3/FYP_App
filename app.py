@@ -1,8 +1,13 @@
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
+from werkzeug.security import generate_password_hash, check_password_hash
+from flask_cors import CORS  # Optional: For CORS handling if required
 
 app = Flask(__name__)
+
+# CORS Configuration (optional)
+CORS(app)
 
 app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://root:1FootballFan!!@localhost/FYP'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -33,68 +38,88 @@ class Child(db.Model):
 
 @app.route('/register', methods=['POST'])
 def register():
-    data = request.get_json()
-    name = data['name']
-    email = data['email']
-    password = data['password']
+    try:
+        data = request.get_json()
+        name = data['name']
+        email = data['email']
+        password = generate_password_hash(data['password'])
 
-    # Check if user already exists
-    existing_user = User.query.filter_by(email=email).first()
-    if existing_user:
-        return jsonify({'message': 'User already exists'}), 400
+        # Check if user already exists
+        existing_user = User.query.filter_by(email=email).first()
+        if existing_user:
+            return jsonify({'message': 'User already exists'}), 400
 
-    # Create a new user
-    new_user = User(name=name, email=email, password=password)
-    db.session.add(new_user)
-    db.session.commit()
+        # Create a new user
+        new_user = User(name=name, email=email, password=password)
+        db.session.add(new_user)
+        db.session.commit()
 
-    return jsonify({'message': 'User registered successfully'}), 200
+        return jsonify({'message': 'User registered successfully'}), 200
+    except Exception as e:
+        print(f"Error during registration: {e}")
+        return jsonify({'message': 'An error occurred during registration'}), 500
 
 @app.route('/login', methods=['POST'])
 def login():
-    data = request.get_json()
-    email = data['email']
-    password = data['password']
+    try:
+        data = request.get_json()
+        email = data['email']
+        password = data['password']
 
-    # Check if user exists and the password matches
-    user = User.query.filter_by(email=email, password=password).first()
-    if user:
-        return jsonify({'message': 'Login successful'}), 200
-    else:
-        return jsonify({'message': 'Invalid credentials'}), 401
+        # Check if user exists and the password matches
+        user = User.query.filter_by(email=email).first()
+        if user and check_password_hash(user.password, password):
+            return jsonify({'message': 'Login successful'}), 200
+        else:
+            return jsonify({'message': 'Invalid credentials'}), 401
+    except Exception as e:
+        print(f"Error during login: {e}")
+        return jsonify({'message': 'An error occurred during login'}), 500
 
 @app.route('/add_child', methods=['POST'])
 def add_child():
-    data = request.get_json()
-    name = data['name']
-    age = data['age']
-    guardian_id = data['guardian_id']
+    try:
+        data = request.get_json()
+        name = data['name']
+        age = data['age']
+        guardian_id = data['guardian_id']
 
-    new_child = Child(name=name, age=age, guardian_id=guardian_id)
-    db.session.add(new_child)
-    db.session.commit()
+        new_child = Child(name=name, age=age, guardian_id=guardian_id)
+        db.session.add(new_child)
+        db.session.commit()
 
-    return jsonify({'message': 'Child added successfully'}), 200
+        return jsonify({'message': 'Child added successfully'}), 200
+    except Exception as e:
+        print(f"Error adding child: {e}")
+        return jsonify({'message': 'An error occurred while adding child'}), 500
 
 @app.route('/view_children/<int:guardian_id>', methods=['GET'])
 def view_children(guardian_id):
-    children = Child.query.filter_by(guardian_id=guardian_id).all()
-    children_list = [{'id': child.id, 'name': child.name, 'age': child.age} for child in children]
-    return jsonify(children_list), 200
+    try:
+        children = Child.query.filter_by(guardian_id=guardian_id).all()
+        children_list = [{'id': child.id, 'name': child.name, 'age': child.age} for child in children]
+        return jsonify(children_list), 200
+    except Exception as e:
+        print(f"Error viewing children: {e}")
+        return jsonify({'message': 'An error occurred while viewing children'}), 500
 
 @app.route('/update_child/<int:child_id>', methods=['PUT'])
 def update_child(child_id):
-    data = request.get_json()
-    child = Child.query.get(child_id)
+    try:
+        data = request.get_json()
+        child = Child.query.get(child_id)
 
-    if not child:
-        return jsonify({'message': 'Child not found'}), 404
+        if not child:
+            return jsonify({'message': 'Child not found'}), 404
 
-    child.name = data.get('name', child.name)
-    child.age = data.get('age', child.age)
-    db.session.commit()
+        child.name = data.get('name', child.name)
+        child.age = data.get('age', child.age)
+        db.session.commit()
 
-    return jsonify({'message': 'Child updated successfully'}), 200
+        return jsonify({'message': 'Child updated successfully'}), 200
+    except Exception as e:
+        print(f"Error updating child: {e}")
+        return jsonify({'message': 'An error occurred while updating child'}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True, host="0.0.0.0")  # Allows connections from other devices on the network
+    app.run(debug=True, host="0.0.0.0")
