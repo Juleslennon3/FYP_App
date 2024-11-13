@@ -13,29 +13,34 @@ class _RegisterPageState extends State<RegisterPage> {
   final TextEditingController _passwordController = TextEditingController();
 
   Future<void> register() async {
-    final String apiUrl = 'https://f9d6-80-233-40-15.ngrok-free.app/register';
-    final response = await http.post(
-      Uri.parse(apiUrl),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'name': _nameController.text,
-        'email': _emailController.text,
-        'password': _passwordController.text,
-      }),
-    );
-
-    if (response.statusCode == 200) {
-      // Registration successful
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Registration successful. Please log in.')),
+    final String apiUrl = 'https://2927-37-228-233-126.ngrok-free.app/register';
+    try {
+      final response = await http.post(
+        Uri.parse(apiUrl),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'name': _nameController.text,
+          'email': _emailController.text,
+          'password': _passwordController.text,
+        }),
       );
-    } else {
-      // Handle error
-      final errorMessage =
-          jsonDecode(response.body)['message'] ?? 'Registration failed.';
+
+      if (response.statusCode == 200) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Registration successful. Please log in.')),
+        );
+      } else {
+        final errorMessage =
+            jsonDecode(response.body)['message'] ?? 'Registration failed.';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(errorMessage)),
+        );
+      }
+    } catch (e) {
+      print('Error: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(errorMessage)),
+        SnackBar(content: Text('An error occurred. Please try again.')),
       );
     }
   }
