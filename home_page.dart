@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'profile_page.dart';
 
 class HomePage extends StatefulWidget {
   final String userEmail;
@@ -12,11 +13,17 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   int _selectedIndex = 0;
 
-  static List<Widget> _widgetOptions = <Widget>[
-    Center(child: Text('Home Page', style: TextStyle(fontSize: 24))),
-    Center(child: Text('Profile Page', style: TextStyle(fontSize: 24))),
-    Center(child: Text('Activity Log Page', style: TextStyle(fontSize: 24))),
-  ];
+  late List<Widget> _widgetOptions;
+
+  @override
+  void initState() {
+    super.initState();
+    _widgetOptions = <Widget>[
+      Center(child: Text('Home Page', style: TextStyle(fontSize: 24))),
+      ProfilePage(userEmail: widget.userEmail), // Pass userEmail to ProfilePage
+      Center(child: Text('Activity Log Page', style: TextStyle(fontSize: 24))),
+    ];
+  }
 
   void _onItemTapped(int index) {
     setState(() {
@@ -32,7 +39,7 @@ class _HomePageState extends State<HomePage> {
         actions: [
           Padding(
             padding: const EdgeInsets.all(8.0),
-            child: Center(child: Text(widget.userEmail)), // Display email here
+            child: Center(child: Text(widget.userEmail)),
           ),
         ],
       ),
