@@ -34,7 +34,7 @@ class _AddChildDialogState extends State<AddChildDialog> {
         }),
       );
 
-      if (response.statusCode == 200) {
+      if (response.statusCode == 201) {
         Navigator.pop(context, true); // Return true to indicate success
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Child added successfully!')),
@@ -46,6 +46,7 @@ class _AddChildDialogState extends State<AddChildDialog> {
       }
     } catch (e) {
       print('Error adding child: $e');
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('An error occurred. Please try again.')),
       );
