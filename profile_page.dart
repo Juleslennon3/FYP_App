@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:url_launcher/url_launcher.dart'; // Add this for launching URLs
 import 'add_child_dialog.dart'; // Import the dialog for adding children
-import 'package:flutter_web_auth/flutter_web_auth.dart';
+import 'package:flutter_web_auth/flutter_web_auth.dart'; // Import for web authentication
 
 class ProfilePage extends StatefulWidget {
   final String userEmail; // Pass the email if needed for fetching user info
@@ -18,6 +17,7 @@ class _ProfilePageState extends State<ProfilePage> {
   Map<String, dynamic>? userInfo;
   List<dynamic> children = []; // List to store children data
   bool isLoading = true;
+  Map<String, dynamic> fitbitData = {}; // Store fetched Fitbit data
 
   @override
   void initState() {
@@ -25,6 +25,7 @@ class _ProfilePageState extends State<ProfilePage> {
     fetchUserInfo(); // Fetch user info when profile page loads
   }
 
+  // Fetch User Info
   Future<void> fetchUserInfo() async {
     final String apiUrl =
         'https://2927-37-228-233-126.ngrok-free.app/user/email/${widget.userEmail}';
@@ -34,9 +35,11 @@ class _ProfilePageState extends State<ProfilePage> {
       if (response.statusCode == 200) {
         setState(() {
           userInfo = jsonDecode(response.body);
+          print("User Info fetched successfully: $userInfo"); // Debugging log
           isLoading = false;
         });
         fetchChildren(); // Fetch children after userInfo is loaded
+        fetchFitbitData(); // Fetch Fitbit data after user info is fetched
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to load user info')),
@@ -56,6 +59,7 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
+  // Fetch Children
   Future<void> fetchChildren() async {
     if (userInfo == null) return; // Make sure userInfo is loaded first
 
@@ -67,6 +71,7 @@ class _ProfilePageState extends State<ProfilePage> {
       if (response.statusCode == 200) {
         setState(() {
           children = jsonDecode(response.body);
+          print("Children Data: $children"); // Debugging log
         });
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -74,13 +79,62 @@ class _ProfilePageState extends State<ProfilePage> {
         );
       }
     } catch (e) {
-      print('Error fetching children: $e');
+      print('Error fetching children data: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('An error occurred. Please try again.')),
+        SnackBar(
+            content: Text('An error occurred while fetching children data.')),
       );
     }
   }
 
+  // Fetch Fitbit Data
+  Future<void> fetchFitbitData() async {
+    if (userInfo == null) return;
+
+    final String apiUrl =
+        'https://2927-37-228-233-126.ngrok-free.app/fitbit_data/${userInfo!['id']}';
+    try {
+      final response = await http.get(Uri.parse(apiUrl));
+
+      if (response.statusCode == 200) {
+        setState(() {
+          fitbitData = jsonDecode(response.body);
+          print("Fitbit Data: $fitbitData"); // Debugging log
+        });
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load Fitbit data')),
+        );
+      }
+    } catch (e) {
+      print('Error fetching Fitbit data: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text('An error occurred while fetching Fitbit data.')),
+      );
+    }
+  }
+
+  // Function to refresh Fitbit token
+  Future<void> refreshFitbitToken(int childId) async {
+    final String apiUrl =
+        'https://2927-37-228-233-126.ngrok-free.app/refresh_fitbit_token/$childId';
+
+    try {
+      final response = await http.post(Uri.parse(apiUrl));
+
+      if (response.statusCode == 200) {
+        print('Fitbit token refreshed successfully!');
+        fetchFitbitData(); // Now, try to fetch Fitbit data again
+      } else {
+        print('Failed to refresh Fitbit token: ${response.body}');
+      }
+    } catch (e) {
+      print('Error refreshing Fitbit token: $e');
+    }
+  }
+
+  // Add a child
   Future<void> _addChild() async {
     bool result = await showDialog(
       context: context,
@@ -165,6 +219,24 @@ class _ProfilePageState extends State<ProfilePage> {
                                 },
                               ),
                             ),
+                      SizedBox(height: 20),
+                      Text('Fitbit Activity Data:',
+                          style: TextStyle(fontSize: 18)),
+                      fitbitData.isNotEmpty
+                          ? Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                    'Heart Rate: ${fitbitData['activities-heart'] != null && fitbitData['activities-heart'].isNotEmpty ? fitbitData['activities-heart'][0]['value']['restingHeartRate'] : 'N/A'} bpm'),
+                                Text(
+                                    'Steps: ${fitbitData['activities'] != null && fitbitData['activities'].isNotEmpty ? fitbitData['activities'][0]['steps'] : 'N/A'} steps'),
+                                Text(
+                                    'Calories: ${fitbitData['activities'] != null && fitbitData['activities'].isNotEmpty ? fitbitData['activities'][0]['calories'] : 'N/A'} kcal'),
+                                Text(
+                                    'Distance: ${fitbitData['activities'] != null && fitbitData['activities'].isNotEmpty ? fitbitData['activities'][0]['distance'] : 'N/A'} km'),
+                              ],
+                            )
+                          : Text('No Fitbit data available.'),
                     ],
                   ),
                 )
