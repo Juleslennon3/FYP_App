@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:url_launcher/url_launcher.dart'; // For Fitbit authentication URL
 import 'dart:convert';
 import 'add_child_dialog.dart'; // Import the dialog for adding children
-import 'package:flutter_web_auth/flutter_web_auth.dart'; // Import for web authentication
 
 class ProfilePage extends StatefulWidget {
-  final String userEmail; // Pass the email if needed for fetching user info
+  final String userEmail;
 
   ProfilePage({required this.userEmail});
 
@@ -15,9 +15,8 @@ class ProfilePage extends StatefulWidget {
 
 class _ProfilePageState extends State<ProfilePage> {
   Map<String, dynamic>? userInfo;
-  List<dynamic> children = []; // List to store children data
+  Map<String, dynamic>? childData; // Store the child data
   bool isLoading = true;
-  Map<String, dynamic> fitbitData = {}; // Store fetched Fitbit data
 
   @override
   void initState() {
@@ -28,146 +27,174 @@ class _ProfilePageState extends State<ProfilePage> {
   // Fetch User Info
   Future<void> fetchUserInfo() async {
     final String apiUrl =
-        'https://2927-37-228-233-126.ngrok-free.app/user/email/${widget.userEmail}';
+        'https://a20b-37-228-210-166.ngrok-free.app/user/email/${widget.userEmail}';
     try {
       final response = await http.get(Uri.parse(apiUrl));
 
       if (response.statusCode == 200) {
         setState(() {
           userInfo = jsonDecode(response.body);
-          print("User Info fetched successfully: $userInfo"); // Debugging log
           isLoading = false;
         });
-        fetchChildren(); // Fetch children after userInfo is loaded
-        fetchFitbitData(); // Fetch Fitbit data after user info is fetched
+
+        // Fetch the child data if user has a child
+        if (userInfo != null) {
+          fetchChild(userInfo!['id']);
+        }
       } else {
+        setState(() {
+          isLoading = false;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to load user info')),
         );
-        setState(() {
-          isLoading = false;
-        });
       }
     } catch (e) {
       print('Error fetching user info: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('An error occurred. Please try again.')),
-      );
       setState(() {
         isLoading = false;
       });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('An error occurred. Please try again.')),
+      );
     }
   }
 
-  // Fetch Children
-  Future<void> fetchChildren() async {
-    if (userInfo == null) return; // Make sure userInfo is loaded first
-
+  // Fetch Child Data
+  Future<void> fetchChild(int userId) async {
     final String apiUrl =
-        'https://2927-37-228-233-126.ngrok-free.app/view_children/${userInfo!['id']}';
+        'https://a20b-37-228-210-166.ngrok-free.app/view_child/$userId';
     try {
       final response = await http.get(Uri.parse(apiUrl));
 
       if (response.statusCode == 200) {
         setState(() {
-          children = jsonDecode(response.body);
-          print("Children Data: $children"); // Debugging log
+          childData = jsonDecode(response.body);
         });
       } else {
+        setState(() {
+          childData = null;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load children')),
+          SnackBar(content: Text('No child data available')),
         );
       }
     } catch (e) {
-      print('Error fetching children data: $e');
+      print('Error fetching child data: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text('An error occurred while fetching children data.')),
+        SnackBar(content: Text('An error occurred while fetching child data.')),
       );
     }
   }
 
-  // Fetch Fitbit Data
-  Future<void> fetchFitbitData() async {
-    if (userInfo == null) return;
+  // First-time Fitbit Authentication
+  Future<void> authenticateFitbit() async {
+    if (childData == null) return;
 
-    final String apiUrl =
-        'https://2927-37-228-233-126.ngrok-free.app/fitbit_data/${userInfo!['id']}';
+    final String authApiUrl =
+        'https://a20b-37-228-210-166.ngrok-free.app/authenticate_fitbit/${childData!['id']}';
+
     try {
-      final response = await http.get(Uri.parse(apiUrl));
+      print("Calling authentication endpoint: $authApiUrl");
+
+      final response = await http.post(Uri.parse(authApiUrl));
 
       if (response.statusCode == 200) {
-        setState(() {
-          fitbitData = jsonDecode(response.body);
-          print("Fitbit Data: $fitbitData"); // Debugging log
-        });
+        final responseData = jsonDecode(response.body);
+        final String authUrl = responseData['auth_url'];
+        print("Received auth URL: $authUrl");
+
+        final Uri authUri = Uri.parse(authUrl);
+
+        // Force opening in an external browser
+        await launchUrl(
+          authUri,
+          mode: LaunchMode.externalApplication,
+        );
       } else {
+        print(
+            "Failed to initiate authentication. Status code: ${response.statusCode}");
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load Fitbit data')),
+          SnackBar(content: Text('Failed to initiate Fitbit authentication')),
         );
       }
     } catch (e) {
-      print('Error fetching Fitbit data: $e');
+      print("Error during authentication: $e");
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text('An error occurred while fetching Fitbit data.')),
+        SnackBar(content: Text('Failed to launch Fitbit authentication')),
       );
     }
   }
 
-  // Function to refresh Fitbit token
-  Future<void> refreshFitbitToken(int childId) async {
+  // Refresh Fitbit Token
+  Future<void> refreshFitbitToken() async {
+    if (childData == null) return;
     final String apiUrl =
-        'https://2927-37-228-233-126.ngrok-free.app/refresh_fitbit_token/$childId';
-
+        'https://a20b-37-228-210-166.ngrok-free.app/refresh_fitbit_token/${childData!['id']}';
     try {
       final response = await http.post(Uri.parse(apiUrl));
-
       if (response.statusCode == 200) {
-        print('Fitbit token refreshed successfully!');
-        fetchFitbitData(); // Now, try to fetch Fitbit data again
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Token refreshed successfully')),
+        );
+      } else if (response.statusCode == 403) {
+        // Trigger re-authentication if refresh token is invalid
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content:
+                  Text('Refresh token invalid. Re-authentication required.')),
+        );
+        reAuthenticateFitbit();
       } else {
-        print('Failed to refresh Fitbit token: ${response.body}');
+        final error = jsonDecode(response.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text('Failed to refresh token: ${error['message']}')),
+        );
       }
     } catch (e) {
-      print('Error refreshing Fitbit token: $e');
+      print('Error refreshing token: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error refreshing token')),
+      );
     }
   }
 
-  // Add a child
-  Future<void> _addChild() async {
-    bool result = await showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AddChildDialog(
-            userId: userInfo!['id']); // Pass user ID to dialog
-      },
-    );
+  // Trigger Fitbit Re-authentication
+  Future<void> reAuthenticateFitbit() async {
+    if (childData == null) return;
 
-    if (result == true) {
-      // If child was added successfully, reload the children list
-      fetchChildren();
-    }
-  }
-
-  // Function to initiate Fitbit authorization for a child
-  Future<void> _linkFitbit(int childId) async {
-    final authUrl = 'https://www.fitbit.com/oauth2/authorize?response_type=code'
-        '&client_id=23PVVG'
-        '&redirect_uri=https://2927-37-228-233-126.ngrok-free.app/fitbit_callback'
-        '&scope=activity%20profile%20heartrate%20sleep'
-        '&state=$childId';
+    final String reAuthApiUrl =
+        'https://a20b-37-228-210-166.ngrok-free.app/re_authorize_fitbit/${childData!['id']}';
 
     try {
-      final result = await FlutterWebAuth.authenticate(
-        url: authUrl,
-        callbackUrlScheme: "https",
-      );
-      // The result will contain the callback URL with the authorization code
-      // Extract the code and complete the OAuth flow as needed
+      print("Calling re-authentication endpoint: $reAuthApiUrl");
+
+      final response = await http.post(Uri.parse(reAuthApiUrl));
+
+      if (response.statusCode == 200) {
+        final responseData = jsonDecode(response.body);
+        final String authUrl = responseData['auth_url'];
+        print("Received auth URL: $authUrl");
+
+        final Uri authUri = Uri.parse(authUrl);
+
+        // Force opening in an external browser
+        await launchUrl(
+          authUri,
+          mode: LaunchMode.externalApplication,
+        );
+      } else {
+        print(
+            "Failed to initiate re-authentication. Status code: ${response.statusCode}");
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to initiate re-authentication')),
+        );
+      }
     } catch (e) {
+      print("Error during re-authentication: $e");
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not complete Fitbit authorization')),
+        SnackBar(content: Text('Failed to launch Fitbit re-authentication')),
       );
     }
   }
@@ -193,54 +220,51 @@ class _ProfilePageState extends State<ProfilePage> {
                       Text('Email: ${userInfo!['email']}',
                           style: TextStyle(fontSize: 20)),
                       SizedBox(height: 20),
-                      ElevatedButton(
-                        onPressed: _addChild,
-                        child: Text("Add Child"),
-                      ),
-                      SizedBox(height: 20),
-                      Text('Children:',
-                          style: TextStyle(
-                              fontSize: 18, fontWeight: FontWeight.bold)),
-                      children.isEmpty
-                          ? Text('No children added.')
-                          : Expanded(
-                              child: ListView.builder(
-                                itemCount: children.length,
-                                itemBuilder: (context, index) {
-                                  final child = children[index];
-                                  return ListTile(
-                                    title: Text(child['name']),
-                                    subtitle: Text('Age: ${child['age']}'),
-                                    trailing: ElevatedButton(
-                                      onPressed: () => _linkFitbit(child['id']),
-                                      child: Text('Link Fitbit'),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                      SizedBox(height: 20),
-                      Text('Fitbit Activity Data:',
-                          style: TextStyle(fontSize: 18)),
-                      fitbitData.isNotEmpty
-                          ? Column(
+                      childData == null
+                          ? ElevatedButton(
+                              onPressed: _addChild,
+                              child: Text("Add Child"),
+                            )
+                          : Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                    'Heart Rate: ${fitbitData['activities-heart'] != null && fitbitData['activities-heart'].isNotEmpty ? fitbitData['activities-heart'][0]['value']['restingHeartRate'] : 'N/A'} bpm'),
-                                Text(
-                                    'Steps: ${fitbitData['activities'] != null && fitbitData['activities'].isNotEmpty ? fitbitData['activities'][0]['steps'] : 'N/A'} steps'),
-                                Text(
-                                    'Calories: ${fitbitData['activities'] != null && fitbitData['activities'].isNotEmpty ? fitbitData['activities'][0]['calories'] : 'N/A'} kcal'),
-                                Text(
-                                    'Distance: ${fitbitData['activities'] != null && fitbitData['activities'].isNotEmpty ? fitbitData['activities'][0]['distance'] : 'N/A'} km'),
+                                Text('Child Name: ${childData!['name']}'),
+                                Text('Child Age: ${childData!['age']}'),
+                                SizedBox(height: 20),
+                                if (childData!['fitbit_access_token'] == null)
+                                  ElevatedButton(
+                                    onPressed: authenticateFitbit,
+                                    child: Text("Authenticate Fitbit"),
+                                  ),
+                                if (childData!['fitbit_access_token'] != null)
+                                  ElevatedButton(
+                                    onPressed: reAuthenticateFitbit,
+                                    child: Text("Re-authenticate Fitbit"),
+                                  ),
+                                ElevatedButton(
+                                  onPressed: refreshFitbitToken,
+                                  child: Text("Refresh Token"),
+                                ),
                               ],
-                            )
-                          : Text('No Fitbit data available.'),
+                            ),
                     ],
                   ),
                 )
               : Center(child: Text('No user info available')),
     );
+  }
+
+  // Add a child (optional)
+  Future<void> _addChild() async {
+    bool result = await showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AddChildDialog(userId: userInfo!['id']);
+      },
+    );
+
+    if (result == true) {
+      fetchChild(userInfo!['id']);
+    }
   }
 }

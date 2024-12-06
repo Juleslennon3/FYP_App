@@ -22,7 +22,7 @@ class _AddChildDialogState extends State<AddChildDialog> {
     });
 
     final String apiUrl =
-        'https://2927-37-228-233-126.ngrok-free.app/add_child';
+        'https://a20b-37-228-210-166.ngrok-free.app/add_child';
     try {
       final response = await http.post(
         Uri.parse(apiUrl),

@@ -13,7 +13,7 @@ class _RegisterPageState extends State<RegisterPage> {
   final TextEditingController _passwordController = TextEditingController();
 
   Future<void> register() async {
-    final String apiUrl = 'https://2927-37-228-233-126.ngrok-free.app/register';
+    final String apiUrl = 'https://a20b-37-228-210-166.ngrok-free.app/register';
     try {
       final response = await http.post(
         Uri.parse(apiUrl),
