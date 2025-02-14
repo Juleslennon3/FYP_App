@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 
 class CalendarPage extends StatefulWidget {
-  final int childId; // Use child_id directly
+  final int childId;
 
   CalendarPage({required this.childId});
 
@@ -26,16 +26,15 @@ class _CalendarPageState extends State<CalendarPage> {
   // Fetch calendar entries for the child
   Future<void> fetchCalendarEntries() async {
     final String apiUrl =
-        'https://a20b-37-228-210-166.ngrok-free.app/calendar_entries/${widget.childId}';
+        'https://3efd-80-233-12-225.ngrok-free.app/calendar_entries/${widget.childId}';
     try {
       final response = await http.get(Uri.parse(apiUrl));
+
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body)['activities'] as List<dynamic>;
-        print('Fetched activities: $data'); // Debug log for fetched data
         setState(() {
           calendarEntries = {};
           for (var entry in data) {
-            // Normalize the start_time to ignore time
             final DateTime date = DateTime.parse(entry['start_time']).toLocal();
             final DateTime normalizedDate =
                 DateTime(date.year, date.month, date.day);
@@ -43,32 +42,25 @@ class _CalendarPageState extends State<CalendarPage> {
             calendarEntries[normalizedDate]?.add(entry);
           }
         });
-        print(
-            'Parsed calendarEntries: $calendarEntries'); // Debug log for calendarEntries
       } else {
-        print(
-            'Failed to load calendar entries. Status code: ${response.statusCode}');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to load calendar entries')),
         );
       }
     } catch (e) {
-      print('Error fetching calendar entries: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error fetching calendar entries')),
+        SnackBar(content: Text('Error fetching calendar entries: $e')),
       );
     }
   }
 
   void _onDaySelected(DateTime selectedDate, DateTime focusedDate) {
-    // Normalize selectedDay to ignore time
     setState(() {
       selectedDay =
           DateTime(selectedDate.year, selectedDate.month, selectedDate.day);
     });
   }
 
-  // Build cards for events
   Widget _buildEventList(List<Map<String, dynamic>> events) {
     return ListView.builder(
       itemCount: events.length,
@@ -79,39 +71,16 @@ class _CalendarPageState extends State<CalendarPage> {
           child: ListTile(
             title: Text(event['activity_name'] ?? 'No title'),
             subtitle: Text(
+              'Category: ${event['category']}\n'
               'Start: ${event['start_time']}\nEnd: ${event['end_time']}',
             ),
             trailing: IconButton(
               icon: Icon(Icons.delete, color: Colors.red),
               onPressed: () async {
-                final String apiUrl =
-                    'https://a20b-37-228-210-166.ngrok-free.app/calendar_entry/${event['id']}';
-                try {
-                  final response = await http.delete(Uri.parse(apiUrl));
-
-                  if (response.statusCode == 200) {
-                    print('Event deleted successfully');
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Event deleted successfully')),
-                    );
-                    fetchCalendarEntries(); // Refresh the calendar data after deletion
-                  } else {
-                    print('Failed to delete event: ${response.body}');
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Failed to delete event')),
-                    );
-                  }
-                } catch (e) {
-                  print('Error deleting event: $e');
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                        content: Text('Error occurred while deleting event')),
-                  );
-                }
+                await _deleteEvent(event['id']);
               },
             ),
             onTap: () {
-              // Show notes in a dialog
               showDialog(
                 context: context,
                 builder: (context) => AlertDialog(
@@ -130,6 +99,28 @@ class _CalendarPageState extends State<CalendarPage> {
         );
       },
     );
+  }
+
+  Future<void> _deleteEvent(int eventId) async {
+    final String apiUrl =
+        'https://3efd-80-233-12-225.ngrok-free.app/calendar_entry/$eventId';
+    try {
+      final response = await http.delete(Uri.parse(apiUrl));
+      if (response.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Event deleted successfully')),
+        );
+        fetchCalendarEntries();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to delete event')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error deleting event: $e')),
+      );
+    }
   }
 
   @override
@@ -162,7 +153,6 @@ class _CalendarPageState extends State<CalendarPage> {
                   color: Colors.green,
                   shape: BoxShape.circle,
                 ),
-                weekendTextStyle: TextStyle(color: Colors.red),
               ),
             ),
             SizedBox(height: 20),
@@ -180,47 +170,42 @@ class _CalendarPageState extends State<CalendarPage> {
         ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          // Add functionality to add new events
-          _showAddEventDialog();
-        },
+        onPressed: _showAddEventDialog,
         child: Icon(Icons.add),
         backgroundColor: Colors.blue,
       ),
     );
   }
 
-  // Show the dialog to add an event
   void _showAddEventDialog() {
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return AddEventDialog(
           selectedDate: selectedDay,
-          onSave: (String activityName, DateTime startTime, DateTime endTime,
-              String notes) {
-            _saveEvent(activityName, startTime, endTime, notes);
+          onSave: (String activityName, String category, DateTime startTime,
+              DateTime endTime, String notes) {
+            _saveEvent(activityName, category, startTime, endTime, notes);
           },
         );
       },
     );
   }
 
-  // Save the event in the backend and refresh the calendar
-  Future<void> _saveEvent(String activityName, DateTime startTime,
-      DateTime endTime, String notes) async {
+  Future<void> _saveEvent(String activityName, String category,
+      DateTime startTime, DateTime endTime, String notes) async {
     final String apiUrl =
-        'https://a20b-37-228-210-166.ngrok-free.app/calendar_entry';
+        'https://3efd-80-233-12-225.ngrok-free.app/calendar_entry';
     final Map<String, dynamic> requestBody = {
       'child_id': widget.childId,
       'activity_name': activityName,
+      'category': category,
       'start_time': startTime.toIso8601String(),
       'end_time': endTime.toIso8601String(),
       'activity_notes': notes,
     };
 
     try {
-      print('Request payload: $requestBody'); // Debug log
       final response = await http.post(
         Uri.parse(apiUrl),
         headers: {'Content-Type': 'application/json'},
@@ -228,29 +213,28 @@ class _CalendarPageState extends State<CalendarPage> {
       );
 
       if (response.statusCode == 201) {
-        print('Event added successfully: ${response.body}');
-        fetchCalendarEntries(); // Refresh the calendar data
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Event added successfully')),
+        );
+        fetchCalendarEntries();
       } else {
-        print('Failed to save event: ${response.body}');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to save event')),
         );
       }
     } catch (e) {
-      print('Error saving event: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error occurred while saving event')),
+        SnackBar(content: Text('Error adding event: $e')),
       );
     }
   }
 }
 
-// Dialog for adding events
 class AddEventDialog extends StatefulWidget {
-  final Function(String, DateTime, DateTime, String) onSave;
   final DateTime selectedDate;
+  final Function(String, String, DateTime, DateTime, String) onSave;
 
-  AddEventDialog({required this.onSave, required this.selectedDate});
+  AddEventDialog({required this.selectedDate, required this.onSave});
 
   @override
   _AddEventDialogState createState() => _AddEventDialogState();
@@ -261,6 +245,7 @@ class _AddEventDialogState extends State<AddEventDialog> {
   final TextEditingController _notesController = TextEditingController();
   late DateTime _startTime;
   late DateTime _endTime;
+  String _selectedCategory = 'Activity';
 
   @override
   void initState() {
@@ -275,18 +260,34 @@ class _AddEventDialogState extends State<AddEventDialog> {
       title: Text('Add Event'),
       content: SingleChildScrollView(
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             TextField(
               controller: _activityNameController,
               decoration: InputDecoration(labelText: 'Activity Name'),
+            ),
+            DropdownButtonFormField<String>(
+              value: _selectedCategory,
+              items: ['Activity', 'Food', 'Social']
+                  .map((category) => DropdownMenuItem(
+                        value: category,
+                        child: Text(category),
+                      ))
+                  .toList(),
+              onChanged: (value) {
+                setState(() {
+                  _selectedCategory = value!;
+                });
+              },
+              decoration: InputDecoration(labelText: 'Category'),
             ),
             TextField(
               controller: _notesController,
               decoration: InputDecoration(labelText: 'Notes'),
             ),
             ListTile(
-              title: Text("Start Time"),
-              subtitle: Text(_startTime.toLocal().toString()),
+              title: Text('Start Time'),
+              subtitle: Text('${_startTime.toLocal()}'),
               onTap: () async {
                 final time = await showTimePicker(
                   context: context,
@@ -306,8 +307,8 @@ class _AddEventDialogState extends State<AddEventDialog> {
               },
             ),
             ListTile(
-              title: Text("End Time"),
-              subtitle: Text(_endTime.toLocal().toString()),
+              title: Text('End Time'),
+              subtitle: Text('${_endTime.toLocal()}'),
               onTap: () async {
                 final time = await showTimePicker(
                   context: context,
@@ -333,10 +334,11 @@ class _AddEventDialogState extends State<AddEventDialog> {
         TextButton(
           onPressed: () {
             widget.onSave(
-              _activityNameController.text,
+              _activityNameController.text.trim(),
+              _selectedCategory,
               _startTime,
               _endTime,
-              _notesController.text,
+              _notesController.text.trim(),
             );
             Navigator.of(context).pop();
           },

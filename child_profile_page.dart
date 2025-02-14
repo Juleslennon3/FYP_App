@@ -5,7 +5,7 @@ class ChildProfilePage extends StatelessWidget {
   final int childId;
   final String clientId = '23PVVG'; // Replace with your Fitbit Client ID
   final String redirectUri =
-      'https://a20b-37-228-210-166.ngrok-free.app/fitbit_callback';
+      'https://3efd-80-233-12-225.ngrok-free.app/fitbit_callback';
 
   ChildProfilePage({required this.childId});
 
