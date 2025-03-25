@@ -34,7 +34,7 @@ class _ActivityLogPageState extends State<ActivityLogPage> {
   // Fetch Fitbit Data
   Future<void> fetchFitbitData() async {
     final String apiUrl =
-        'https://3efd-80-233-12-225.ngrok-free.app/fitbit_data/${widget.childId}';
+        'https://1a05-80-233-39-72.ngrok-free.app/fitbit_data/${widget.childId}';
     try {
       final response = await http.get(Uri.parse(apiUrl));
 
@@ -70,7 +70,7 @@ class _ActivityLogPageState extends State<ActivityLogPage> {
   // Fetch Calendar Entries
   Future<List<Map<String, dynamic>>> fetchCalendarEntries(int childId) async {
     final String apiUrl =
-        'https://3efd-80-233-12-225.ngrok-free.app/calendar_entries/$childId';
+        'https://https://1a05-80-233-39-72.ngrok-free.app/calendar_entries/$childId';
 
     try {
       final response = await http.get(Uri.parse(apiUrl));
@@ -95,7 +95,7 @@ class _ActivityLogPageState extends State<ActivityLogPage> {
 
   Future<void> checkLastFoodEvent() async {
     final String apiUrl =
-        'https://3efd-80-233-12-225.ngrok-free.app/calendar_entries/${widget.childId}';
+        'https://https://1a05-80-233-39-72.ngrok-free.app/calendar_entries/${widget.childId}';
 
     try {
       final response = await http.get(Uri.parse(apiUrl));

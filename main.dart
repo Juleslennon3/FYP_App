@@ -95,7 +95,7 @@ Future<void> sendTokenToServer(String token) async {
     }
 
     final response = await http.post(
-      Uri.parse("https://3efd-80-233-12-225.ngrok-free.app/register_token"),
+      Uri.parse("https://1a05-80-233-39-72.ngrok-free.app/register_token"),
       headers: {"Content-Type": "application/json"},
       body: jsonEncode({"parent_id": parentId, "token": token}),
     );

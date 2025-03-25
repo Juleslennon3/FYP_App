@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'home_page.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class LoginPage extends StatefulWidget {
   @override
@@ -13,8 +15,29 @@ class _LoginPageState extends State<LoginPage> {
   final TextEditingController _passwordController = TextEditingController();
   bool isLoading = false;
 
+  Future<void> sendTokenToServer(String token, String parentId) async {
+    final String apiUrl =
+        'https://1a05-80-233-39-72.ngrok-free.app/register_token';
+
+    try {
+      final response = await http.post(
+        Uri.parse(apiUrl),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({"parent_id": parentId, "token": token}),
+      );
+
+      if (response.statusCode == 200) {
+        print("✅ Token sent successfully to backend!");
+      } else {
+        print("❌ Failed to send token: ${response.body}");
+      }
+    } catch (e) {
+      print("❌ Error sending token: $e");
+    }
+  }
+
   Future<void> login() async {
-    final String apiUrl = 'https://a20b-37-228-210-166.ngrok-free.app/login';
+    final String apiUrl = 'https://1a05-80-233-39-72.ngrok-free.app/login';
     setState(() {
       isLoading = true;
     });
@@ -32,20 +55,56 @@ class _LoginPageState extends State<LoginPage> {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final userId = data['user_id'];
-        print('Login successful. User ID: $userId'); // Debug log for userId
+        var parentId = data['parent_id']; // Allow null
 
-        // Navigate to the HomePage and pass userId and email
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => HomePage(
-              userId: userId,
-              userEmail: _emailController.text.trim(),
+        // ✅ If parent_id is null, use user_id instead
+        if (parentId == null) {
+          print("⚠️ Warning: parent_id is missing. Using user_id instead.");
+          parentId = userId.toString();
+        }
+
+        // ✅ Store Parent ID in SharedPreferences
+        SharedPreferences prefs = await SharedPreferences.getInstance();
+        await prefs.setString("parent_id", parentId);
+
+        // ✅ Fetch Child Data
+        final String childApiUrl =
+            'https://1a05-80-233-39-72.ngrok-free.app/view_child/$userId';
+        final childResponse = await http.get(Uri.parse(childApiUrl));
+
+        if (childResponse.statusCode == 200) {
+          final childData = jsonDecode(childResponse.body);
+          final childId = childData['id'];
+
+          // ✅ Fetch & Send FCM Token to Backend
+          FirebaseMessaging.instance.getToken().then((token) {
+            if (token != null) {
+              print("📲 Device FCM Token: $token");
+              sendTokenToServer(token, parentId);
+            } else {
+              print("❌ Failed to retrieve FCM token!");
+            }
+          }).catchError((error) {
+            print("❌ Error retrieving FCM token: $error");
+          });
+
+          // ✅ Navigate to Home Page
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => HomePage(
+                userEmail: _emailController.text.trim(),
+                userId: userId,
+                childId: childId,
+              ),
             ),
-          ),
-        );
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to fetch child data.')),
+          );
+        }
       } else {
-        // Display error message from the backend
         final errorMessage = jsonDecode(response.body)['message'] ??
             'Login failed. Please check your credentials.';
         ScaffoldMessenger.of(context).showSnackBar(
@@ -53,11 +112,9 @@ class _LoginPageState extends State<LoginPage> {
         );
       }
     } catch (e) {
-      // Display a generic error message if the request fails
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('An error occurred. Please try again.')),
       );
-      print('Error: $e');
     } finally {
       setState(() {
         isLoading = false;
@@ -68,45 +125,94 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Login'),
-        backgroundColor: Colors.blue,
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (isLoading)
-              Center(
-                child: CircularProgressIndicator(),
-              )
-            else ...[
-              TextField(
-                controller: _emailController,
-                decoration: InputDecoration(labelText: 'Email'),
-                keyboardType: TextInputType.emailAddress,
+      body: Stack(
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Colors.blue.shade300, Colors.blue.shade900],
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
               ),
-              TextField(
-                controller: _passwordController,
-                decoration: InputDecoration(labelText: 'Password'),
-                obscureText: true,
+            ),
+          ),
+          Center(
+            child: SingleChildScrollView(
+              child: Card(
+                elevation: 8.0,
+                margin: EdgeInsets.symmetric(horizontal: 20.0),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(15.0),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Login',
+                        style: TextStyle(
+                          fontSize: 24.0,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue.shade900,
+                        ),
+                      ),
+                      SizedBox(height: 20),
+                      TextField(
+                        controller: _emailController,
+                        decoration: InputDecoration(
+                          labelText: 'Email',
+                          prefixIcon: Icon(Icons.email),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8.0),
+                          ),
+                        ),
+                        keyboardType: TextInputType.emailAddress,
+                      ),
+                      SizedBox(height: 10),
+                      TextField(
+                        controller: _passwordController,
+                        decoration: InputDecoration(
+                          labelText: 'Password',
+                          prefixIcon: Icon(Icons.lock),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8.0),
+                          ),
+                        ),
+                        obscureText: true,
+                      ),
+                      SizedBox(height: 20),
+                      isLoading
+                          ? CircularProgressIndicator()
+                          : ElevatedButton(
+                              onPressed: login,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.blue.shade900,
+                                padding: EdgeInsets.symmetric(
+                                    horizontal: 50.0, vertical: 12.0),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8.0),
+                                ),
+                              ),
+                              child: Text(
+                                'Login',
+                                style: TextStyle(fontSize: 18),
+                              ),
+                            ),
+                      SizedBox(height: 10),
+                      TextButton(
+                        onPressed: () {
+                          Navigator.pushNamed(context, '/register');
+                        },
+                        child: Text('Register'),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-              SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: login,
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
-                child: Text('Login'),
-              ),
-              TextButton(
-                onPressed: () {
-                  Navigator.pushNamed(context, '/register');
-                },
-                child: Text('Register'),
-              ),
-            ],
-          ],
-        ),
+            ),
+          ),
+        ],
       ),
     );
   }
