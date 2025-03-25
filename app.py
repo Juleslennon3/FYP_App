@@ -1,8 +1,12 @@
 import base64
 import logging
+import os
 from datetime import datetime
 from urllib.parse import unquote
 from datetime import datetime, timedelta
+from flask_apscheduler import APScheduler
+from datetime import datetime
+import requests
 
 import firebase_admin
 import requests
@@ -15,6 +19,7 @@ from flask_sqlalchemy import SQLAlchemy
 from google.auth.transport.requests import Request
 from google.oauth2 import service_account
 from mysql.connector import IntegrityError
+from sqlalchemy import func
 from sqlalchemy.testing.pickleable import Parent
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_mysqldb import MySQL
@@ -22,6 +27,8 @@ from flask import Flask, request, jsonify
 from flask_mysqldb import MySQL
 from google.oauth2 import service_account
 import google.auth.transport.requests
+from sqlalchemy.sql import text
+
 
 if not firebase_admin._apps:
     cred = credentials.Certificate(r"C:\Users\jules\PycharmProjects\flaskFYP\serviceAccountKey.json")  # ✅ Ensure this file exists!
@@ -40,6 +47,7 @@ class User(db.Model):
     name = db.Column(db.String(80), nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password = db.Column(db.String(255), nullable=False)
+    fcm_token = db.Column(db.String(255), nullable=True)
 
     # One-to-one relationship with the Child model
     child = db.relationship('Child', backref='guardian', uselist=False)
@@ -67,6 +75,49 @@ class FitbitData(db.Model):
         self.child_id = child_id
         self.data = data
 
+from flask_sqlalchemy import SQLAlchemy
+from datetime import datetime
+
+
+
+class StressEvent(db.Model):
+    __tablename__ = 'stress_event'
+
+    id = db.Column(db.Integer, primary_key=True)
+    child_id = db.Column(db.Integer, db.ForeignKey('child.id'), nullable=False)
+    trigger = db.Column(db.String(255))  # Optional: what triggered the stress
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+    interventions = db.relationship('Intervention', backref='stress_event', lazy=True)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "child_id": self.child_id,
+            "trigger": self.trigger,
+            "timestamp": self.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "interventions": [i.to_dict() for i in self.interventions]
+        }
+
+
+class Intervention(db.Model):
+    __tablename__ = 'intervention'
+
+    id = db.Column(db.Integer, primary_key=True)
+    stress_event_id = db.Column(db.Integer, db.ForeignKey('stress_event.id'), nullable=False)
+    intervention_type = db.Column(db.String(100))
+    description = db.Column(db.Text)
+    resolved_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "stress_event_id": self.stress_event_id,
+            "intervention_type": self.intervention_type,
+            "description": self.description,
+            "resolved_at": self.resolved_at.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+
 
 class CalendarEntry(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -86,6 +137,13 @@ class CalendarEntry(db.Model):
         self.activity_notes = activity_notes
         self.category = category
 
+class StressScoreLog(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    child_id = db.Column(db.Integer, db.ForeignKey('child.id'), nullable=False)
+    stress_score = db.Column(db.Float, nullable=False)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+    child = db.relationship("Child", backref=db.backref("stress_scores", lazy=True))
 
 class DeviceToken(db.Model):
     __tablename__ = "device_tokens"
@@ -94,6 +152,8 @@ class DeviceToken(db.Model):
     parent_id = db.Column(db.String(255), nullable=False)
     token = db.Column(db.Text, unique=True, nullable=False)
     created_at = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp())
+
+
 
     with app.app_context():
         db.create_all()
@@ -282,7 +342,7 @@ def get_fitbit_status(child_id):
 def authenticate_fitbit(child_id):
     try:
         client_id = '23PVVG'
-        redirect_uri = 'https://3efd-80-233-12-225.ngrok-free.app/fitbit_callback'
+        redirect_uri = 'https://1a05-80-233-39-72.ngrok-free.app/fitbit_callback'
         scopes = (
             "activity heartrate sleep profile "
             "electrocardiogram irregular_rhythm_notifications "
@@ -315,7 +375,7 @@ def re_authorize_fitbit(child_id):
 
         # Generate the Fitbit OAuth URL
         client_id = '23PVVG'
-        redirect_uri = 'https://3efd-80-233-12-225.ngrok-free.app/fitbit_callback'
+        redirect_uri = 'https://1a05-80-233-39-72.ngrok-free.app/fitbit_callback'
         scopes = 'activity heartrate sleep weight profile settings social location oxygen_saturation electrocardiogram irregular_rhythm_notifications cardio_fitness temperature respiratory_rate'  # Correct scopes
         auth_url = f"https://www.fitbit.com/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri={redirect_uri}&scope={scopes}&state={child_id}"
 
@@ -348,7 +408,7 @@ def fitbit_callback():
         # Exchange the authorization code for access/refresh tokens
         client_id = '23PVVG'
         client_secret = 'e87a3c8c746462bfff0c8dd8b5ccf675'
-        redirect_uri = 'https://3efd-80-233-12-225.ngrok-free.app/fitbit_callback'
+        redirect_uri = 'https://1a05-80-233-39-72.ngrok-free.app/fitbit_callback'
 
         token_url = 'https://api.fitbit.com/oauth2/token'
         headers = {
@@ -431,11 +491,19 @@ def get_fitbit_data(child_id):
         }
 
         # Fetch live data from Fitbit
+        # Fetch live data from Fitbit
         fitbit_data = {}
         if headers:
             for key, url in urls.items():
                 try:
-                    fitbit_data[key] = fetch_with_retry(url, headers)
+                    response = fetch_with_retry(url, headers)
+
+                    # If response is a tuple (response, status_code), extract response
+                    if isinstance(response, tuple):
+                        response, status_code = response  # Unpack tuple
+
+                    fitbit_data[key] = response.json()  # Convert to JSON
+
                 except Exception as e:
                     print(f"Error fetching {key}: {e}")
                     fitbit_data[key] = None  # Set key to None if fetching fails
@@ -817,21 +885,22 @@ def process_graph_data(intraday_data, calendar_events):
     return graph_data
 
 
-@app.route('/last_food_event/<int:child_id>', methods=['GET'])
-def get_last_food_event(child_id):
-    last_meal = CalendarEntry.query.filter_by(child_id=child_id, category="Food").order_by(CalendarEntry.start_time.desc()).first()
+@app.route('/get_last_meal/<int:child_id>', methods=['GET'])
+def get_last_meal(child_id):
+    try:
+        # Query for the latest 'Food' category event for the given child_id
+        last_meal = CalendarEntry.query.filter_by(child_id=child_id, category='Food') \
+            .order_by(CalendarEntry.start_time.desc()).first()
 
-    if last_meal:
-        last_meal_time = last_meal.start_time.strftime("%Y-%m-%d %H:%M:%S")
-        return jsonify({
-            "last_meal_time": last_meal_time,
-            "warning": None  # No warning, as a meal was logged within 5 hours
-        }), 200
-    else:
-        return jsonify({
-            "last_meal_time": None,
-            "warning": "No meals logged in the last 5 hours!"
-        }), 200
+        if last_meal:
+            now = datetime.now()
+            last_meal_time = last_meal.start_time
+            hours_since_last_meal = (now - last_meal_time).total_seconds() // 3600
+            return jsonify({"time_since_last_meal": int(hours_since_last_meal)})
+        else:
+            return jsonify({"time_since_last_meal": None})  # No meal found
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 
@@ -878,14 +947,14 @@ def get_access_token():
 
 # ✅ Send Firebase Cloud Notification
 def send_fcm_notification(fcm_token, title, body):
+    access_token = get_access_token()  # Get valid OAuth token
+
     headers = {
-        "Authorization": f"Bearer {get_access_token()}",
-        "Content-Type": "application/json"
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
     }
 
-    # Replace 'your-project-id' with your actual Firebase project ID
-    PROJECT_ID = "cloud-messaging-bc6ad"
-
+    PROJECT_ID = "cloud-messaging-bc6ad"  # 🔁 Replace with your real Firebase project ID
     url = f"https://fcm.googleapis.com/v1/projects/{PROJECT_ID}/messages:send"
 
     payload = {
@@ -894,9 +963,15 @@ def send_fcm_notification(fcm_token, title, body):
             "notification": {
                 "title": title,
                 "body": body
+            },
+            "android": {
+                "priority": "high"
             }
         }
     }
+
+    print("📡 Sending notification with payload:")
+    print(json.dumps(payload, indent=2))
 
     response = requests.post(url, headers=headers, json=payload)
 
@@ -904,21 +979,6 @@ def send_fcm_notification(fcm_token, title, body):
     print(f"🔥 FCM Response Text: {response.text}")
 
     return response.json()
-
-# ✅ Fetch Parent's FCM Token from Database
-def get_parent_fcm_token(child_id):
-    connection = get_db_connection()
-    cursor = connection.cursor(dictionary=True)
-
-    cursor.execute(
-        "SELECT token FROM device_tokens WHERE parent_id = (SELECT guardian_id FROM child WHERE id = %s)",
-        (child_id,)
-    )
-    result = cursor.fetchone()
-    cursor.close()
-    connection.close()
-
-    return result["token"] if result else None  # ✅ Return valid token or None
 
 
 # ✅ Fetch Resting Heart Rate from Fitbit API
@@ -1094,7 +1154,7 @@ def check_heart_rate_and_notify():
             child_id = child.id
 
             # ✅ Fetch the latest Fitbit heart rate data for this child
-            api_url = f"https://3efd-80-233-12-225.ngrok-free.app/fitbit_data/{child_id}"
+            api_url = f"https://1a05-80-233-39-72.ngrok-free.app/fitbit_data/{child_id}"
             response = requests.get(api_url)
             data = response.json()
 
@@ -1109,7 +1169,7 @@ def check_heart_rate_and_notify():
             print(f"🔥 Latest Heart Rate for Child {child_id}: {latest_heart_rate} BPM")
 
             # ✅ Define a high heart rate threshold
-            HEART_RATE_THRESHOLD = 20  # Adjust as needed
+            HEART_RATE_THRESHOLD = 100  # Adjust as needed
 
             if latest_heart_rate >= HEART_RATE_THRESHOLD:
                 print(f"🚨 High heart rate detected: {latest_heart_rate} BPM! Sending alert...")
@@ -1127,10 +1187,457 @@ def check_heart_rate_and_notify():
         print(f"❌ Error checking heart rate: {e}")
 
 scheduler = BackgroundScheduler()
-scheduler.add_job(check_heart_rate_and_notify, 'interval', minutes=1)
+scheduler.add_job(check_heart_rate_and_notify, 'interval', minutes=500)
 scheduler.start()
 
 
+def get_meal_counts(child_id):
+    today = datetime.today().date()
+    last_7_days = [(today - timedelta(days=i)) for i in range(6, -1, -1)]
+
+    print(f"🔍 Today: {today}")
+    print(f"🔍 Last 7 days range: {last_7_days[0]} to {last_7_days[-1]}")
+
+    # ✅ Query meal data (meals per day + timestamps for calculating gaps)
+    meals = (
+        db.session.query(
+            func.date(CalendarEntry.start_time).label("meal_date"),
+            func.count().label("meal_count"),
+            func.group_concat(text("UNIX_TIMESTAMP(start_time) ORDER BY start_time")).label("timestamps")  # Collect timestamps for gap calculation
+        )
+        .filter(CalendarEntry.category == 'Food')
+        .filter(CalendarEntry.child_id == child_id)
+        .filter(CalendarEntry.start_time >= last_7_days[0])
+        .filter(CalendarEntry.start_time <= last_7_days[-1] + timedelta(days=1))  # Ensure today is included
+        .group_by(func.date(CalendarEntry.start_time))
+        .all()
+    )
+
+    print(f"🟠 Raw meal data from DB: {meals}")
+
+    # ✅ Initialize dictionary with all 7 days set to 0 meals and gaps
+    meal_data = {day.strftime('%Y-%m-%d'): {"meal_count": 0, "meal_gap": 0} for day in last_7_days}
+
+    # ✅ Update dictionary with actual data from SQL
+    for meal in meals:
+        meal_date_str = meal.meal_date.strftime('%Y-%m-%d')
+        timestamps = meal.timestamps.split(',') if meal.timestamps else []
+
+        meal_data[meal_date_str]["meal_count"] = meal.meal_count
+
+        # ✅ Calculate meal gap (difference in hours between meals on the same day)
+        if len(timestamps) > 1:
+            timestamps = sorted([datetime.fromtimestamp(int(ts)) for ts in timestamps])
+            gaps = [(timestamps[i] - timestamps[i - 1]).total_seconds() / 3600 for i in range(1, len(timestamps))]
+            meal_data[meal_date_str]["meal_gap"] = max(gaps)  # Store the longest gap of the day
+        else:
+            meal_data[meal_date_str]["meal_gap"] = 0  # No gap if only one meal
+
+    # ✅ Convert dates into readable format (e.g., "Today", "1st Mar")
+    def format_date(date):
+        if date == today:
+            return "Today"
+        return date.strftime('%-d %b') if os.name != 'nt' else date.strftime('%#d %b')
+
+    date_labels = [format_date(day) for day in last_7_days]
+
+    # ✅ Return updated data with meal counts and meal gaps
+    return jsonify({
+        "dates": date_labels,
+        "meal_counts": [meal_data.get(day.strftime('%Y-%m-%d'), {"meal_count": 0})["meal_count"] for day in
+                        last_7_days],
+        "meal_gaps": [meal_data.get(day.strftime('%Y-%m-%d'), {"meal_gap": 0})["meal_gap"] for day in last_7_days]
+    })
+
+
+@app.route('/getMealData/<int:child_id>', methods=['GET'])
+def get_meal_data(child_id):
+    # 🔹 Fetch meal data from function
+    result = get_meal_counts(child_id).json  # ✅ Extract JSON from Response object
+
+    print("🟢 Final JSON Response:", result)  # ✅ Just print the dictionary, no json.dumps()
+
+    return jsonify(result)  # ✅ Return JSON response properly
+
+
+def fetch_with_retry(url, headers, max_retries=3):
+    """Fetch data from Fitbit API with retry logic."""
+    for attempt in range(max_retries):
+        response = requests.get(url, headers=headers)
+
+        if response.status_code == 200:
+            return response  # ✅ Correct: Returning the full response object
+
+        elif response.status_code == 429:
+            wait_time = int(response.headers.get("Retry-After", 10))  # Default wait: 10s
+            print(f"⚠️ Rate limited. Retrying in {wait_time} seconds...")
+            time.sleep(wait_time)
+
+        else:
+            print(f"❌ Error {response.status_code}: {response.text}")
+
+    return None  # ✅ Returns None only if all retries fail
+
+
+@app.route('/get_weekly_sleep/<int:child_id>', methods=['GET'])
+def get_weekly_sleep(child_id):
+    try:
+        # Fetch the child and their access token
+        child = Child.query.get(child_id)
+        if not child:
+            return jsonify({'message': 'Child not found'}), 404
+
+        if not child.fitbit_access_token:
+            return jsonify({'message': 'No Fitbit access token found'}), 400
+
+        headers = {'Authorization': f'Bearer {child.fitbit_access_token}'}
+
+        # Generate the last 7 days’ dates
+        past_week_dates = [(datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d') for i in range(7)]
+        sleep_data = []
+
+        # Query Fitbit API for each date
+        for date in past_week_dates:
+            sleep_url = f'https://api.fitbit.com/1.2/user/-/sleep/date/{date}.json'
+            response = requests.get(sleep_url, headers=headers)
+
+            if response.status_code == 200:
+                sleep_response = response.json()
+
+                if 'sleep' in sleep_response and sleep_response['sleep']:
+                    # Get the main sleep session
+                    main_sleep = max(sleep_response['sleep'], key=lambda x: x.get('minutesAsleep', 0))
+                    sleep_data.append({
+                        "dateOfSleep": main_sleep.get("dateOfSleep", date),
+                        "minutesAsleep": main_sleep.get("minutesAsleep", 0)
+                    })
+                else:
+                    sleep_data.append({"dateOfSleep": date, "minutesAsleep": 0})
+
+            else:
+                print(f"⚠️ Failed to fetch sleep data for {date}: {response.status_code}")
+                sleep_data.append({"dateOfSleep": date, "minutesAsleep": 0})  # If Fitbit API fails, default to 0
+
+        return jsonify({
+            'message': 'Weekly sleep data fetched successfully',
+            'data': sleep_data,
+        }), 200
+
+    except Exception as e:
+        print(f"❌ Error in get_weekly_sleep: {e}")
+        return jsonify({'message': str(e)}), 500
+
+
+@app.route('/get_intraday_heart_rate/<int:child_id>/<date>', methods=['GET'])
+def get_intraday_heart_rate(child_id, date):
+    try:
+        # Fetch child data
+        child = Child.query.get(child_id)
+        if not child:
+            return jsonify({'message': 'Child not found'}), 404
+
+        headers = {'Authorization': f'Bearer {child.fitbit_access_token}'} if child.fitbit_access_token else None
+
+        # ✅ Correct Fitbit API URL
+        fitbit_url = f'https://api.fitbit.com/1/user/-/activities/heart/date/{date}/1d/1min.json'
+
+        # ✅ Fetch Data (Make sure fetch_with_retry() returns a valid response!)
+        response = fetch_with_retry(fitbit_url, headers)
+
+        if response is None:
+            print("❌ Failed to fetch intraday heart rate data from Fitbit. Trying database...")
+
+            # 🔥 Fallback: Get latest stored Fitbit data
+            most_recent_data = FitbitData.query.filter_by(child_id=child_id).order_by(
+                FitbitData.timestamp.desc()).first()
+
+            if most_recent_data:
+                fitbit_data = most_recent_data.data
+                if 'heart_rate_intraday' in fitbit_data:
+                    return jsonify({
+                        'message': 'Using fallback intraday heart rate data',
+                        'data': fitbit_data['heart_rate_intraday']
+                    }), 200
+                else:
+                    return jsonify({'message': 'No heart rate data in database'}), 404
+            else:
+                return jsonify({'message': 'No data available in database'}), 404
+
+        # ✅ Convert response to JSON properly
+        heart_rate_data = response.json()
+
+        # ✅ Store the data into the database
+        try:
+            new_fitbit_data = FitbitData(
+                child_id=child_id,
+                data={'heart_rate_intraday': heart_rate_data}  # Storing only heart rate
+            )
+            db.session.add(new_fitbit_data)
+            db.session.commit()
+            print(f"✅ Intraday heart rate data saved for child_id: {child_id}")
+        except Exception as db_error:
+            print(f"❌ Error saving data to the database: {db_error}")
+            return jsonify({'message': 'Error saving data to database'}), 500
+
+        return jsonify({
+            'message': 'Intraday heart rate data fetched successfully',
+            'data': heart_rate_data
+        }), 200
+
+    except Exception as e:
+        print(f"❌ Error in get_intraday_heart_rate: {e}")
+        return jsonify({'message': str(e)}), 500
+
+@app.route("/log_stress_score/<int:child_id>", methods=["POST"])
+def log_stress_score(child_id):
+    data = request.json
+    stress_score = data.get("stress_score")
+
+    if stress_score is None:
+        return jsonify({"error": "Missing stress score"}), 400
+
+    new_entry = StressScoreLog(child_id=child_id, stress_score=stress_score)
+    db.session.add(new_entry)
+    db.session.commit()
+
+    return jsonify({"message": "Stress score logged successfully"})
+@app.route("/get_stress_scores/<int:child_id>", methods=["GET"])
+def get_stress_scores(child_id):
+    scores = StressScoreLog.query.filter_by(child_id=child_id).order_by(StressScoreLog.timestamp.asc()).all()
+
+    stress_data = [
+        {"timestamp": score.timestamp.strftime("%Y-%m-%d %H:%M:%S"), "stress_score": score.stress_score}
+        for score in scores
+    ]
+
+    return jsonify({"data": stress_data, "message": "Stress scores fetched successfully"})
+
+@app.route('/save_stress_score', methods=['POST'])
+def save_stress_score():
+    try:
+        data = request.json
+        child_id = data.get('child_id')
+        stress_score = data.get('stress_score')
+        timestamp = datetime.now()
+
+        new_entry = StressScoreLog(
+            child_id=child_id,
+            stress_score=stress_score,
+            timestamp=timestamp
+        )
+
+        db.session.add(new_entry)
+        db.session.commit()
+
+        return jsonify({"message": "Stress score logged successfully"}), 200
+    except Exception as e:
+        return jsonify({"error":
+                            str(e)}), 500
+
+
+@app.route('/log_stress_event', methods=['POST'])
+def log_stress_event():
+    data = request.json
+    child_id = data.get('child_id')
+    trigger = data.get('trigger', '')  # Optional context
+
+    if not child_id:
+        return jsonify({"error": "child_id is required"}), 400
+
+    new_event = StressEvent(
+        child_id=child_id,
+        trigger=trigger,
+        timestamp=datetime.utcnow()
+    )
+    db.session.add(new_event)
+    db.session.commit()
+
+    return jsonify({"message": "Stress event logged", "event_id": new_event.id}), 200
+
+
+@app.route('/log_intervention/<int:event_id>', methods=['POST'])
+def log_intervention(event_id):
+    data = request.json
+    intervention_type = data.get('intervention_type')
+    description = data.get('description', '')
+
+    if not intervention_type:
+        return jsonify({"error": "intervention_type is required"}), 400
+
+    intervention = Intervention(
+        stress_event_id=event_id,
+        intervention_type=intervention_type,
+        description=description,
+        resolved_at=datetime.utcnow()
+    )
+    db.session.add(intervention)
+
+    # Optionally mark the stress event as resolved
+    event = StressEvent.query.get(event_id)
+    if event:
+        event.resolved = True
+
+    db.session.commit()
+
+    return jsonify({"message": "Intervention logged"}), 200
+
+
+@app.route('/stress_events/<int:child_id>', methods=['GET'])
+def get_stress_events(child_id):
+    # Get the date parameter from the request
+    date_param = request.args.get('date')
+
+    if date_param:
+        try:
+            # Convert date_param to a valid datetime object (00:00:00 time)
+            selected_date = datetime.strptime(date_param, "%Y-%m-%d").date()
+
+            # Filter stress events to include only those matching the selected date
+            events = StressEvent.query.filter(
+                StressEvent.child_id == child_id,
+                db.func.date(StressEvent.timestamp) == selected_date
+            ).order_by(StressEvent.timestamp.desc()).all()
+        except ValueError:
+            return jsonify({"error": "Invalid date format, expected YYYY-MM-DD"}), 400
+    else:
+        # If no date is provided, return all events (fallback)
+        events = StressEvent.query.filter_by(child_id=child_id).order_by(StressEvent.timestamp.desc()).all()
+
+    return jsonify({
+        "data": [e.to_dict() for e in events],
+        "message": "Stress events retrieved successfully"
+    })
+
+STRESS_THRESHOLD = 10
+
+
+@app.route('/calculate_and_store_stress/<int:child_id>', methods=['POST'])
+def calculate_and_store_stress(child_id):
+    try:
+        # 🌙 Fetch Fitbit data
+        fitbit_response = requests.get(f"http://localhost:5000/fitbit_data/{child_id}")
+        if fitbit_response.status_code != 200:
+            return jsonify({"error": "Failed to fetch Fitbit data"}), 500
+
+        fitbit_data = fitbit_response.json().get('data', {})
+
+        # 💤 Sleep data
+        sleep_list = fitbit_data.get('sleep', {}).get('sleep', [])
+        main_sleep = next((s for s in sleep_list if s.get('isMainSleep')), {})
+        total_sleep = main_sleep.get('minutesAsleep', 0) / 60
+        deep_sleep = main_sleep.get('levels', {}).get('summary', {}).get('deep', {}).get('minutes', 0) / 60
+        efficiency = main_sleep.get('efficiency', 0)
+
+        # ❤️ Latest Heart Rate
+        heart_data = fitbit_data.get('heart_rate_intraday', {}).get('activities-heart-intraday', {}).get('dataset', [])
+        latest_heart_rate = heart_data[-1]['value'] if heart_data else 70
+
+        # 🍽️ Meal data
+        meal_response = requests.get(f"http://localhost:5000/get_last_meal/{child_id}")
+        meal_data = meal_response.json()
+        time_since_last_meal = meal_data.get('time_since_last_meal', 24)
+
+        # ✅ Score Calculations (Match Flutter)
+        def calculate_sleep_score(total, deep, eff):
+            score = (total / 8) * 50
+            score += (deep / 2) * 25
+            score += (eff / 100) * 25
+            return max(0, min(score, 100))
+
+        def calculate_heart_score(hr):
+            if hr < 60: return 25
+            if hr < 100: return 12.5
+            return 0
+
+        def calculate_meal_score(hours):
+            return max(0, min(25 - (hours / 24) * 25, 25))
+
+        sleep_score = calculate_sleep_score(total_sleep, deep_sleep, efficiency)
+        heart_score = calculate_heart_score(latest_heart_rate)
+        meal_score = calculate_meal_score(time_since_last_meal)
+
+        original_score = (sleep_score * 0.5) + (heart_score * 0.25) + (meal_score * 0.25)
+        overall_stress = 100 - original_score
+
+        # ✅ Store in DB
+        new_log = StressScoreLog(
+            child_id=child_id,
+            stress_score=overall_stress,
+            timestamp=datetime.now()
+        )
+        db.session.add(new_log)
+        db.session.commit()
+
+        # 🚨 Send Notification if Needed
+        if overall_stress >= STRESS_THRESHOLD:
+            parent_token = get_parent_fcm_token(child_id)
+            if parent_token:
+                send_fcm_notification(
+                    fcm_token=parent_token,
+                    title="⚠️ High Stress Alert!",
+                    body=f"Your child's stress level is high ({overall_stress:.1f}). Check the app for details."
+                )
+
+            # 📌 Log as Stress Event
+            new_event = StressEvent(
+                child_id=child_id,
+                trigger="Auto-detected spike",
+                timestamp=datetime.utcnow()
+            )
+            db.session.add(new_event)
+            db.session.commit()
+
+        return jsonify({
+            "child_id": child_id,
+            "stress_score": overall_stress,
+            "message": "Stress calculated, stored, and notification sent if necessary."
+        }), 200
+
+    except Exception as e:
+        print(f"❌ Error calculating or storing stress: {e}")
+        return jsonify({"error": str(e)}), 500
+
+# Helper function to send notifications with FCM
+def send_fcm_message(token, title, body):
+    message = messaging.Message(
+        notification=messaging.Notification(title=title, body=body),
+        token=token,
+    )
+
+    response = messaging.send(message)
+    print(f"✅ Successfully sent notification: {response}")
+
+
+
+def scheduled_stress_calculation():
+    child_id = 1  # Update if needed
+    print(f"⏳ Running scheduled stress calculation for child {child_id} at {datetime.now()}")
+
+    try:
+        response = requests.post(f"http://localhost:5000/calculate_and_store_stress/{child_id}")
+        print(f"✅ Stress Calculation Response: {response.status_code} - {response.json()}")
+    except Exception as e:
+        print(f"❌ Error in scheduled stress calculation: {e}")
+
+
+scheduler = APScheduler()
+
+scheduler.add_job(
+    id="calculate_stress_job",
+    func=scheduled_stress_calculation,
+    trigger="interval",
+    minutes=10  # Change to your preferred interval
+)
+
+@app.route('/list_jobs', methods=['GET'])
+def list_jobs():
+    return jsonify([{"id": job.id, "next_run": str(job.next_run_time)} for job in scheduler.get_jobs()])
+
+
+scheduler.init_app(app)
+scheduler.start()
+
 
 if __name__ == '__main__':
-    app.run(debug=True, host="0.0.0.0")
+    app.run(host='0.0.0.0', port=5000)
+
