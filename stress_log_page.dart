@@ -13,22 +13,23 @@ class StressLogPage extends StatefulWidget {
 }
 
 class _StressLogPageState extends State<StressLogPage> {
-  DateTime selectedDate = DateTime.now(); // Start with today
+  DateTime selectedDate = DateTime.now();
   bool isLoading = true;
   List<dynamic> stressEvents = [];
+  List<dynamic> topInterventions = [];
 
   @override
   void initState() {
     super.initState();
     fetchStressEvents();
+    fetchTopInterventions();
   }
 
   Future<void> fetchStressEvents() async {
-    setState(() => isLoading = true); // Start loading state
-
+    setState(() => isLoading = true);
     String formattedDate = DateFormat('yyyy-MM-dd').format(selectedDate);
     final url = Uri.parse(
-        'https://1a05-80-233-39-72.ngrok-free.app/stress_events/${widget.childId}?date=$formattedDate');
+        'https://db45-37-228-234-175.ngrok-free.app/stress_events/${widget.childId}?date=$formattedDate');
 
     try {
       final response = await http.get(url);
@@ -39,16 +40,30 @@ class _StressLogPageState extends State<StressLogPage> {
           isLoading = false;
         });
       } else {
-        print("❌ Failed to fetch events: ${response.body}");
         setState(() => isLoading = false);
       }
     } catch (e) {
-      print("❌ Error fetching stress events: $e");
+      print("❌ Error: $e");
       setState(() => isLoading = false);
     }
   }
 
-  /// Move to Previous Day
+  Future<void> fetchTopInterventions() async {
+    final url = Uri.parse(
+        'https://db45-37-228-234-175.ngrok-free.app/top_interventions/${widget.childId}');
+    try {
+      final response = await http.get(url);
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          topInterventions = data['top_interventions'];
+        });
+      }
+    } catch (e) {
+      print("❌ Error fetching top interventions: $e");
+    }
+  }
+
   void goToPreviousDay() {
     setState(() {
       selectedDate = selectedDate.subtract(Duration(days: 1));
@@ -56,7 +71,6 @@ class _StressLogPageState extends State<StressLogPage> {
     fetchStressEvents();
   }
 
-  /// Move to Next Day (Prevents Going to Future Dates)
   void goToNextDay() {
     if (selectedDate.isBefore(DateTime.now())) {
       setState(() {
@@ -66,38 +80,32 @@ class _StressLogPageState extends State<StressLogPage> {
     }
   }
 
-  /// Show Dialog to Log Intervention
   void showInterventionDialog(int eventId) {
-    final controller = TextEditingController();
-    String selectedType = 'Other';
+    final causeController = TextEditingController();
+    final interventionController = TextEditingController();
 
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: Text("Log Intervention"),
+        title: Text("Log Stress Event Details"),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            DropdownButton<String>(
-              value: selectedType,
-              onChanged: (value) =>
-                  setState(() => selectedType = value ?? 'Other'),
-              items: [
-                'Breathing Exercise',
-                'Weighted Blanket',
-                'Calming Music',
-                'Quiet Break',
-                'Other',
-              ]
-                  .map((type) =>
-                      DropdownMenuItem(value: type, child: Text(type)))
-                  .toList(),
-            ),
             TextField(
-              controller: controller,
-              maxLines: 3,
-              decoration: InputDecoration(hintText: 'Describe what helped...'),
-            )
+              controller: causeController,
+              maxLines: 2,
+              decoration: InputDecoration(
+                hintText: 'What caused the stress?',
+              ),
+            ),
+            SizedBox(height: 10),
+            TextField(
+              controller: interventionController,
+              maxLines: 2,
+              decoration: InputDecoration(
+                hintText: 'What helped calm them down?',
+              ),
+            ),
           ],
         ),
         actions: [
@@ -107,9 +115,14 @@ class _StressLogPageState extends State<StressLogPage> {
           ),
           ElevatedButton(
             onPressed: () async {
-              await logIntervention(eventId, selectedType, controller.text);
+              await logIntervention(
+                eventId,
+                interventionController.text.trim(),
+                causeController.text.trim(),
+              );
               Navigator.pop(context);
               fetchStressEvents();
+              fetchTopInterventions();
             },
             child: Text("Save"),
           )
@@ -118,16 +131,42 @@ class _StressLogPageState extends State<StressLogPage> {
     );
   }
 
-  Future<void> logIntervention(int eventId, String type, String desc) async {
+  Future<void> logManualStressEvent(String trigger, DateTime timestamp) async {
     final url = Uri.parse(
-        'https://1a05-80-233-39-72.ngrok-free.app/log_intervention/$eventId');
+        "https://db45-37-228-234-175.ngrok-free.app/manual_log_stress");
+
+    try {
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          "child_id": widget.childId,
+          "trigger": trigger,
+          "timestamp": timestamp.toIso8601String()
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        print("✅ Manual stress event logged!");
+      } else {
+        print("❌ Failed to log manual stress event: ${response.body}");
+      }
+    } catch (e) {
+      print("❌ Error logging manual event: $e");
+    }
+  }
+
+  Future<void> logIntervention(
+      int eventId, String intervention, String cause) async {
+    final url = Uri.parse(
+        'https://db45-37-228-234-175.ngrok-free.app/log_intervention/$eventId');
 
     final response = await http.post(
       url,
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
-        "intervention_type": type,
-        "description": desc,
+        "intervention_type": intervention,
+        "description": cause,
       }),
     );
 
@@ -135,6 +174,20 @@ class _StressLogPageState extends State<StressLogPage> {
       print("✅ Intervention logged");
     } else {
       print("❌ Failed to log intervention: ${response.body}");
+    }
+  }
+
+  Future<void> checkEffectivenessNow(int interventionId) async {
+    final url = Uri.parse(
+        'https://db45-37-228-234-175.ngrok-free.app/update_intervention_effectiveness/$interventionId');
+
+    final response = await http.post(url);
+
+    if (response.statusCode == 200) {
+      print("✅ Intervention effectiveness updated");
+      fetchStressEvents(); // Refresh the UI with updated effectiveness
+    } else {
+      print("❌ Failed to update effectiveness: ${response.body}");
     }
   }
 
@@ -158,13 +211,24 @@ class _StressLogPageState extends State<StressLogPage> {
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (event['stress_score'] != null)
+              Text("📊 Stress Score at time: ${event['stress_score']}"),
             if (event['trigger'] != null && event['trigger'].isNotEmpty)
               Text("Trigger: ${event['trigger']}"),
             if (hasIntervention) ...[
-              Text("✅ Resolved: ${intervention['intervention_type']}"),
-              Text("📝 ${intervention['description']}"),
+              Text("✅ Resolved with: ${intervention['intervention_type']}"),
+              Text("📝 What happened: ${intervention['description']}"),
               Text(
                   "⏳ Resolved at: ${intervention['resolved_at'].substring(11, 16)}"),
+              if (intervention['stress_score_after'] ==
+                  null) // <-- This line checks unresolved
+                TextButton.icon(
+                  onPressed: () async {
+                    await checkEffectivenessNow(intervention['id']);
+                  },
+                  icon: Icon(Icons.refresh),
+                  label: Text("Check if this helped now"),
+                )
             ]
           ],
         ),
@@ -175,6 +239,32 @@ class _StressLogPageState extends State<StressLogPage> {
                 onPressed: () => showInterventionDialog(event['id']),
               ),
       ),
+    );
+  }
+
+  Widget buildLeaderboardCard(Map<String, dynamic> intervention, int index) {
+    IconData icon = Icons.emoji_events;
+    Color iconColor;
+
+    switch (index) {
+      case 0:
+        iconColor = Colors.amber; // Gold
+        break;
+      case 1:
+        iconColor = Colors.grey; // Silver
+        break;
+      case 2:
+        iconColor = Colors.brown; // Bronze
+        break;
+      default:
+        iconColor = Colors.blueGrey; // Others
+    }
+
+    return ListTile(
+      leading: Icon(Icons.emoji_events, color: Colors.amber),
+      title: Text("${intervention['intervention_type']}"),
+      subtitle: Text(
+          "Avg Drop: ${intervention['average_stress_drop']}  |  Used: ${intervention['times_used']}x"),
     );
   }
 
@@ -202,20 +292,125 @@ class _StressLogPageState extends State<StressLogPage> {
       ),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
-          : stressEvents.isEmpty
-              ? Center(
-                  child: Text(
-                    "✅ No stress threshold exceeded today for this child.",
-                    style: TextStyle(fontSize: 16),
+          : Column(
+              children: [
+                if (topInterventions.isNotEmpty) ...[
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                    child: Row(
+                      children: [
+                        Icon(Icons.bar_chart, color: Colors.deepPurple),
+                        SizedBox(width: 8),
+                        Text(
+                          "Top Interventions",
+                          style: TextStyle(
+                              fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
                   ),
-                )
-              : Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: ListView(
-                    children:
-                        stressEvents.map((e) => buildStressCard(e)).toList(),
-                  ),
+                  ...topInterventions.asMap().entries.map(
+                        (entry) => buildLeaderboardCard(entry.value, entry.key),
+                      ),
+                  Divider(),
+                ],
+                Expanded(
+                  child: stressEvents.isEmpty
+                      ? Center(
+                          child: Text(
+                            "✅ No stress threshold exceeded today for this child.",
+                            style: TextStyle(fontSize: 16),
+                          ),
+                        )
+                      : Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: ListView(
+                            children: stressEvents
+                                .map((e) => buildStressCard(e))
+                                .toList(),
+                          ),
+                        ),
                 ),
+              ],
+            ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: showManualLogDialog,
+        backgroundColor: Colors.redAccent,
+        child: Icon(Icons.add_alert),
+        tooltip: "Manually Log Stress Event",
+      ),
+    );
+  }
+
+  void showManualLogDialog() {
+    final TextEditingController triggerController = TextEditingController();
+    TimeOfDay selectedTime = TimeOfDay.now();
+
+    showDialog(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: Text("Manually Log Dysregulation"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: triggerController,
+                maxLines: 2,
+                decoration: InputDecoration(
+                  hintText: "What happened?",
+                ),
+              ),
+              SizedBox(height: 16),
+              Row(
+                children: [
+                  Text("Time: ${selectedTime.format(context)}"),
+                  Spacer(),
+                  TextButton(
+                    onPressed: () async {
+                      final picked = await showTimePicker(
+                        context: context,
+                        initialTime: selectedTime,
+                      );
+                      if (picked != null) {
+                        setState(() {
+                          selectedTime = picked;
+                        });
+                      }
+                    },
+                    child: Text("Pick Time"),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text("Cancel"),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final trigger = triggerController.text.trim();
+                if (trigger.isNotEmpty) {
+                  final now = DateTime.now();
+                  final DateTime fullTimestamp = DateTime(
+                    now.year,
+                    now.month,
+                    now.day,
+                    selectedTime.hour,
+                    selectedTime.minute,
+                  );
+                  await logManualStressEvent(trigger, fullTimestamp);
+                  Navigator.pop(context);
+                  fetchStressEvents();
+                }
+              },
+              child: Text("Log Event"),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

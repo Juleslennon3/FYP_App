@@ -16,9 +16,9 @@ class _RegisterPageState extends State<RegisterPage> {
 
   Future<void> register() async {
     final String registerApiUrl =
-        'https://1a05-80-233-39-72.ngrok-free.app/register';
+        'https://db45-37-228-234-175.ngrok-free.app/register';
     final String addChildApiUrl =
-        'https://1a05-80-233-39-72.ngrok-free.app/add_child';
+        'https://db45-37-228-234-175.ngrok-free.app/add_child';
 
     try {
       // Register User

@@ -26,7 +26,7 @@ class _CalendarPageState extends State<CalendarPage> {
   // Fetch calendar entries for the child
   Future<void> fetchCalendarEntries() async {
     final String apiUrl =
-        'https://1a05-80-233-39-72.ngrok-free.app/calendar_entries/${widget.childId}';
+        'https://db45-37-228-234-175.ngrok-free.app/calendar_entries/${widget.childId}';
     try {
       final response = await http.get(Uri.parse(apiUrl));
 
@@ -103,7 +103,7 @@ class _CalendarPageState extends State<CalendarPage> {
 
   Future<void> _deleteEvent(int eventId) async {
     final String apiUrl =
-        'https://1a05-80-233-39-72.ngrok-free.app/calendar_entry/$eventId';
+        'https://db45-37-228-234-175.ngrok-free.app/calendar_entry/$eventId';
     try {
       final response = await http.delete(Uri.parse(apiUrl));
       if (response.statusCode == 200) {
@@ -195,7 +195,7 @@ class _CalendarPageState extends State<CalendarPage> {
   Future<void> _saveEvent(String activityName, String category,
       DateTime startTime, DateTime endTime, String notes) async {
     final String apiUrl =
-        'https://1a05-80-233-39-72.ngrok-free.app/calendar_entry';
+        'https://db45-37-228-234-175.ngrok-free.app/calendar_entry';
     final Map<String, dynamic> requestBody = {
       'child_id': widget.childId,
       'activity_name': activityName,

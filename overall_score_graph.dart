@@ -24,12 +24,10 @@ class _StressGraphState extends State<StressGraph> {
   }
 
   Future<void> fetchStressScores() async {
-    setState(() {
-      isLoading = true;
-    });
+    setState(() => isLoading = true);
 
     final String apiUrl =
-        'https://1a05-80-233-39-72.ngrok-free.app/get_stress_scores/${widget.childId}';
+        'https://db45-37-228-234-175.ngrok-free.app/get_stress_scores/${widget.childId}';
 
     try {
       final response = await http.get(Uri.parse(apiUrl));
@@ -42,20 +40,16 @@ class _StressGraphState extends State<StressGraph> {
 
         for (var entry in jsonData['data']) {
           DateTime timestamp = DateTime.parse(entry['timestamp']);
-          double stressScore = (entry['stress_score'] as num).toDouble();
+          if (timestamp.hour < 6) continue;
 
-          // Format date as YYYY-MM-DD
+          double stressScore = (entry['stress_score'] as num).toDouble();
           String dateKey =
               "${timestamp.year}-${timestamp.month.toString().padLeft(2, '0')}-${timestamp.day.toString().padLeft(2, '0')}";
-
-          // Convert time into minutes since midnight
           double xValue = (timestamp.hour * 60 + timestamp.minute).toDouble();
+          if (xValue < 360) continue;
 
-          if (!tempGroupedData.containsKey(dateKey)) {
-            tempGroupedData[dateKey] = [];
-            tempTimestamps[dateKey] = [];
-          }
-
+          tempGroupedData.putIfAbsent(dateKey, () => []);
+          tempTimestamps.putIfAbsent(dateKey, () => []);
           tempGroupedData[dateKey]!.add(FlSpot(xValue, stressScore));
           tempTimestamps[dateKey]!.add(timestamp);
         }
@@ -67,19 +61,14 @@ class _StressGraphState extends State<StressGraph> {
         });
       } else {
         print("❌ Failed to fetch stress scores: ${response.body}");
-        setState(() {
-          isLoading = false;
-        });
+        setState(() => isLoading = false);
       }
     } catch (e) {
       print("❌ Error fetching stress scores: $e");
-      setState(() {
-        isLoading = false;
-      });
+      setState(() => isLoading = false);
     }
   }
 
-  /// **Formats timestamp to HH:MM**
   String formatTimestamp(double timestamp) {
     int totalMinutes = timestamp.toInt();
     int hours = totalMinutes ~/ 60;
@@ -87,26 +76,40 @@ class _StressGraphState extends State<StressGraph> {
     return "$hours:${minutes.toString().padLeft(2, '0')}";
   }
 
-  /// **Builds the line chart data with dynamic maxX**
   LineChartData _buildLineChartData(List<FlSpot> stressData, String date) {
-    // Get latest data point for this day
-    double latestTime = stressData.last.x; // Latest timestamp
+    double latestTime = stressData.last.x;
 
     return LineChartData(
-      minX: 0, // Start of day (00:00)
-      maxX: latestTime, // Adjust dynamically to the latest time
+      minX: 360,
+      maxX: latestTime,
+      minY: 0,
+      maxY: 100,
       gridData: FlGridData(
         show: true,
-        getDrawingHorizontalLine: (value) =>
-            FlLine(color: Colors.grey.shade300, strokeWidth: 1),
+        drawHorizontalLine: true,
+        drawVerticalLine: true,
+        getDrawingHorizontalLine: (value) {
+          return FlLine(
+            color: value == 50 ? Colors.orange : Colors.grey.shade300,
+            strokeWidth: 1,
+            dashArray: value == 50 ? [5, 5] : null,
+          );
+        },
       ),
       titlesData: FlTitlesData(
+        topTitles: AxisTitles(
+          sideTitles: SideTitles(showTitles: false),
+        ),
+        rightTitles: AxisTitles(
+          sideTitles: SideTitles(showTitles: false),
+        ),
         leftTitles: AxisTitles(
           sideTitles: SideTitles(
             showTitles: true,
             reservedSize: 40,
+            interval: 20,
             getTitlesWidget: (value, meta) => Text(
-              value.toStringAsFixed(1), // 1 decimal place
+              value.toStringAsFixed(0),
               style: TextStyle(fontSize: 12),
             ),
           ),
@@ -115,14 +118,12 @@ class _StressGraphState extends State<StressGraph> {
           sideTitles: SideTitles(
             showTitles: true,
             reservedSize: 40,
-            interval: 120, // Show label every 2 hours
-            getTitlesWidget: (value, meta) {
-              return Text(
-                formatTimestamp(value),
-                style: TextStyle(fontSize: 10),
-                textAlign: TextAlign.center,
-              );
-            },
+            interval: 120,
+            getTitlesWidget: (value, meta) => Text(
+              formatTimestamp(value),
+              style: TextStyle(fontSize: 10),
+              textAlign: TextAlign.center,
+            ),
           ),
         ),
       ),
@@ -133,16 +134,7 @@ class _StressGraphState extends State<StressGraph> {
           barWidth: 3,
           belowBarData:
               BarAreaData(show: true, color: Colors.blue.withOpacity(0.3)),
-          dotData: FlDotData(
-            show: true,
-            getDotPainter: (spot, percent, barData, index) =>
-                FlDotCirclePainter(
-              radius: 4,
-              color: Colors.blue,
-              strokeWidth: 2,
-              strokeColor: Colors.white,
-            ),
-          ),
+          dotData: FlDotData(show: false),
           color: Colors.blue,
         ),
       ],

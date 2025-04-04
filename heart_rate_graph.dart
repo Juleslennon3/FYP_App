@@ -28,7 +28,7 @@ class _HeartRateGraphState extends State<HeartRateGraph> {
     String todayDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
 
     final String apiUrl =
-        'https://1a05-80-233-39-72.ngrok-free.app/get_intraday_heart_rate/${widget.childId}/$todayDate';
+        'https://db45-37-228-234-175.ngrok-free.app/get_intraday_heart_rate/${widget.childId}/$todayDate';
 
     setState(() {
       isLoading = true;

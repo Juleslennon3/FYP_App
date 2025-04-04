@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'overall_score_graph.dart';
 import 'stress_log_page.dart';
+import 'dart:async';
 
 class HomePage extends StatefulWidget {
   final String userEmail;
@@ -50,6 +51,7 @@ class _HomePageState extends State<HomePage> {
   double deepSleep = 0.0;
   int restingHeartRate = 0;
   List<double> weeklySleepData = List.filled(7, 0.0);
+  String mealCountdownText = "";
 
   @override
   void initState() {
@@ -57,14 +59,88 @@ class _HomePageState extends State<HomePage> {
     fetchFitbitData();
     _sendFcmToken();
     fetchTimeSinceLastMeal();
+    updateMealCountdownText();
+    startMealCountdownTicker();
+  }
+
+  void startMealCountdownTicker() {
+    updateMealCountdownText(); // Run once immediately
+
+    // Update every minute
+    Timer.periodic(Duration(minutes: 1), (timer) {
+      if (!mounted) {
+        timer.cancel(); // Stop if widget disposed
+        return;
+      }
+      updateMealCountdownText();
+    });
+  }
+
+  void updateMealCountdownText() {
+    final now = DateTime.now();
+
+    if (now.hour < 6) {
+      setState(() {
+        mealCountdownText = "⏰ Countdown starts at 6 AM";
+      });
+      return;
+    }
+
+    if (timeSinceLastMeal < 0) {
+      setState(() {
+        mealCountdownText = "⏰ No recent meal data";
+      });
+      return;
+    }
+
+    final lastMealTime = now.subtract(Duration(hours: timeSinceLastMeal));
+    final nextMealTime = lastMealTime.add(Duration(hours: 4));
+    final remaining = nextMealTime.difference(now);
+
+    if (remaining.isNegative) {
+      setState(() {
+        mealCountdownText = "🍽️ Overdue for a meal!";
+      });
+      return;
+    }
+
+    final hours = remaining.inHours;
+    final minutes = remaining.inMinutes.remainder(60);
+
+    setState(() {
+      mealCountdownText = "⏳ Next meal in ${hours}h ${minutes}m";
+    });
+  }
+
+  String getMealCountdownText() {
+    final now = DateTime.now();
+
+    if (now.hour < 6) {
+      return "⏰ Countdown starts at 6 AM";
+    }
+
+    if (timeSinceLastMeal < 0) return "⏰ No recent meal data";
+
+    final lastMealTime = now.subtract(Duration(hours: timeSinceLastMeal));
+    final nextMealTime = lastMealTime.add(Duration(hours: 4));
+    final remaining = nextMealTime.difference(now);
+
+    if (remaining.isNegative) {
+      return "🍽️ Overdue for a meal!";
+    }
+
+    final hours = remaining.inHours;
+    final minutes = remaining.inMinutes.remainder(60);
+
+    return "⏳ Next meal in ${hours}h ${minutes}m";
   }
 
   // Fetch Fitbit Data
   Future<void> fetchFitbitData() async {
     final String fitbitApiUrl =
-        'https://1a05-80-233-39-72.ngrok-free.app/fitbit_data/${widget.childId}';
+        'https://db45-37-228-234-175.ngrok-free.app/fitbit_data/${widget.childId}';
     final String mealApiUrl =
-        'https://1a05-80-233-39-72.ngrok-free.app/get_last_meal/${widget.childId}';
+        'https://db45-37-228-234-175.ngrok-free.app/get_last_meal/${widget.childId}';
 
     setState(() {
       isLoading = true;
@@ -153,7 +229,7 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> saveStressScore() async {
     final String apiUrl =
-        'https://1a05-80-233-39-72.ngrok-free.app/save_stress_score';
+        'https://db45-37-228-234-175.ngrok-free.app/save_stress_score';
 
     try {
       final response = await http.post(
@@ -178,7 +254,7 @@ class _HomePageState extends State<HomePage> {
 
   Future<List<double>> fetchWeeklySleepData() async {
     final String sleepHistoryApiUrl =
-        'https://1a05-80-233-39-72.ngrok-free.app/get_weekly_sleep/${widget.childId}';
+        'https://db45-37-228-234-175.ngrok-free.app/get_weekly_sleep/${widget.childId}';
 
     try {
       final response = await http.get(Uri.parse(sleepHistoryApiUrl));
@@ -283,7 +359,7 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> fetchTimeSinceLastMeal() async {
     final String apiUrl =
-        'https://1a05-80-233-39-72.ngrok-free.app/get_last_meal/${widget.childId}';
+        'https://db45-37-228-234-175.ngrok-free.app/get_last_meal/${widget.childId}';
 
     try {
       final response = await http.get(Uri.parse(apiUrl));
@@ -343,7 +419,7 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _registerTokenToBackend(String token, String parentId) async {
     final String apiUrl =
-        'https://1a05-80-233-39-72.ngrok-free.app/register_token';
+        'https://db45-37-228-234-175.ngrok-free.app/register_token';
 
     try {
       final response = await http.post(
@@ -368,7 +444,7 @@ class _HomePageState extends State<HomePage> {
 
   Future<Map<String, dynamic>> fetchGraphData() async {
     final String apiUrl =
-        'https://1a05-80-233-39-72.ngrok-free.app/generate_graph_data/${widget.childId}';
+        'https://db45-37-228-234-175.ngrok-free.app/generate_graph_data/${widget.childId}';
 
     try {
       final response = await http.get(Uri.parse(apiUrl));
@@ -587,6 +663,12 @@ class _HomePageState extends State<HomePage> {
                     );
                   }
                 },
+                onLongPress: () {
+                  _showScoreFormulaDialog(
+                    "Sleep",
+                    "Sleep Score = (Total Sleep / 8 * 50) + (Deep Sleep / 2 * 25) + (Efficiency / 100 * 25)",
+                  );
+                },
                 child: _buildCircularIndicator(
                   title: "Sleep",
                   value: sleepScore / 100,
@@ -604,6 +686,12 @@ class _HomePageState extends State<HomePage> {
                     ),
                   );
                 },
+                onLongPress: () {
+                  _showScoreFormulaDialog(
+                    "Heart",
+                    "Heart Score = 25 if HR < 60\n12.5 if HR < 100\n0 if HR ≥ 100",
+                  );
+                },
                 child: _buildCircularIndicator(
                   title: "Heart",
                   value: heartStressScore / 25,
@@ -617,7 +705,7 @@ class _HomePageState extends State<HomePage> {
 
                   try {
                     final String mealApiUrl =
-                        "https://1a05-80-233-39-72.ngrok-free.app/getMealData/${widget.childId}";
+                        "https://db45-37-228-234-175.ngrok-free.app/getMealData/${widget.childId}";
                     final response = await http.get(Uri.parse(mealApiUrl));
 
                     print("🔵 Response Code: ${response.statusCode}");
@@ -651,10 +739,16 @@ class _HomePageState extends State<HomePage> {
                     );
                   }
                 },
+                onLongPress: () {
+                  _showScoreFormulaDialog(
+                    "Meal",
+                    "Meal Score = 25 - (Hours since last meal / 24 * 25)",
+                  );
+                },
                 child: _buildCircularIndicator(
                   title: "Meal",
-                  value: mealScore / 100,
-                  color: getTrafficColor(mealScore),
+                  value: mealScore / 25,
+                  color: getMealTrafficColor(mealScore),
                   size: 100,
                 ),
               ),
@@ -685,10 +779,15 @@ class _HomePageState extends State<HomePage> {
           "Current HR: ${heartRate} BPM",
           "Resting HR: ${restingHeartRate} BPM"
         ]),
-        _buildDataCard(title: "Meal Timing", icon: Icons.fastfood, data: [
-          "Last Meal: $timeSinceLastMeal hours ago",
-          "Fullness Score: ${mealScore.toInt()}%",
-        ]),
+        _buildDataCard(
+          title: "Meal Timing",
+          icon: Icons.fastfood,
+          data: [
+            "Last Meal: $timeSinceLastMeal hours ago",
+            "Fullness Score: ${(mealScore * 4).toInt()}%",
+            getMealCountdownText(),
+          ],
+        ),
       ],
     );
   }
@@ -1019,6 +1118,25 @@ class _HomePageState extends State<HomePage> {
       ],
     );
   }
+
+  void _showScoreFormulaDialog(String title, String formulaExplanation) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text("$title Score Formula"),
+        content: Text(
+          formulaExplanation,
+          style: TextStyle(fontSize: 16),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text("OK"),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class MealDialPainter extends CustomPainter {
@@ -1229,8 +1347,16 @@ double calculateHeartStress(int heartRate) {
 }
 
 Color getTrafficColor(double percentage) {
-  if (percentage >= 75) return Colors.green;
-  if (percentage >= 50) return Colors.orange;
+  if (percentage >= 66) return Colors.green;
+  if (percentage >= 33) return Colors.orange;
+  return Colors.red;
+}
+
+Color getMealTrafficColor(double mealScoreOutOf25) {
+  double percentage = (mealScoreOutOf25 / 25) * 100;
+
+  if (percentage >= 66) return Colors.green;
+  if (percentage >= 33) return Colors.orange;
   return Colors.red;
 }
 

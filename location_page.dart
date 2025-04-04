@@ -26,7 +26,7 @@ class _LocationPageState extends State<LocationPage> {
   // Fetch Location Data
   Future<void> fetchLocationData() async {
     final String apiUrl =
-        'https://1a05-80-233-39-72.ngrok-free.app/location/${widget.childId}?date=${widget.activityDate}';
+        'https://29ce-80-233-40-77.ngrok-free.app/location/${widget.childId}?date=${widget.activityDate}';
     try {
       final response = await http.get(Uri.parse(apiUrl));
       if (response.statusCode == 200) {

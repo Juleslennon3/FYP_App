@@ -17,7 +17,7 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> sendTokenToServer(String token, String parentId) async {
     final String apiUrl =
-        'https://1a05-80-233-39-72.ngrok-free.app/register_token';
+        'https://db45-37-228-234-175.ngrok-free.app/register_token';
 
     try {
       final response = await http.post(
@@ -37,7 +37,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> login() async {
-    final String apiUrl = 'https://1a05-80-233-39-72.ngrok-free.app/login';
+    final String apiUrl = 'https://db45-37-228-234-175.ngrok-free.app/login';
     setState(() {
       isLoading = true;
     });
@@ -69,7 +69,7 @@ class _LoginPageState extends State<LoginPage> {
 
         // ✅ Fetch Child Data
         final String childApiUrl =
-            'https://1a05-80-233-39-72.ngrok-free.app/view_child/$userId';
+            'https://db45-37-228-234-175.ngrok-free.app/view_child/$userId';
         final childResponse = await http.get(Uri.parse(childApiUrl));
 
         if (childResponse.statusCode == 200) {

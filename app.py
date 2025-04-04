@@ -1,15 +1,15 @@
 import base64
 import logging
 import os
+import threading
 from datetime import datetime
 from urllib.parse import unquote
 from datetime import datetime, timedelta
 from flask_apscheduler import APScheduler
 from datetime import datetime
-import requests
+import sqlalchemy as sa
 
 import firebase_admin
-import requests
 import mysql.connector
 from apscheduler.schedulers.background import BackgroundScheduler
 from firebase_admin import credentials, messaging
@@ -108,6 +108,8 @@ class Intervention(db.Model):
     intervention_type = db.Column(db.String(100))
     description = db.Column(db.Text)
     resolved_at = db.Column(db.DateTime, default=datetime.utcnow)
+    stress_score_at_time = db.Column(db.Float, nullable=True)
+    stress_score_after = db.Column(db.Float, nullable=True)
 
     def to_dict(self):
         return {
@@ -149,8 +151,8 @@ class DeviceToken(db.Model):
     __tablename__ = "device_tokens"
 
     id = db.Column(db.Integer, primary_key=True)
-    parent_id = db.Column(db.String(255), nullable=False)
-    token = db.Column(db.Text, unique=True, nullable=False)
+    parent_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    token = db.Column(db.String(512), unique=True, nullable=False)
     created_at = db.Column(db.TIMESTAMP, server_default=db.func.current_timestamp())
 
 
@@ -342,7 +344,7 @@ def get_fitbit_status(child_id):
 def authenticate_fitbit(child_id):
     try:
         client_id = '23PVVG'
-        redirect_uri = 'https://1a05-80-233-39-72.ngrok-free.app/fitbit_callback'
+        redirect_uri = 'https://db45-37-228-234-175.ngrok-free.app/fitbit_callback'
         scopes = (
             "activity heartrate sleep profile "
             "electrocardiogram irregular_rhythm_notifications "
@@ -375,7 +377,7 @@ def re_authorize_fitbit(child_id):
 
         # Generate the Fitbit OAuth URL
         client_id = '23PVVG'
-        redirect_uri = 'https://1a05-80-233-39-72.ngrok-free.app/fitbit_callback'
+        redirect_uri = 'https://db45-37-228-234-175.ngrok-free.app/fitbit_callback'
         scopes = 'activity heartrate sleep weight profile settings social location oxygen_saturation electrocardiogram irregular_rhythm_notifications cardio_fitness temperature respiratory_rate'  # Correct scopes
         auth_url = f"https://www.fitbit.com/oauth2/authorize?response_type=code&client_id={client_id}&redirect_uri={redirect_uri}&scope={scopes}&state={child_id}"
 
@@ -408,7 +410,7 @@ def fitbit_callback():
         # Exchange the authorization code for access/refresh tokens
         client_id = '23PVVG'
         client_secret = 'e87a3c8c746462bfff0c8dd8b5ccf675'
-        redirect_uri = 'https://1a05-80-233-39-72.ngrok-free.app/fitbit_callback'
+        redirect_uri = 'https://db45-37-228-234-175.ngrok-free.app/fitbit_callback'
 
         token_url = 'https://api.fitbit.com/oauth2/token'
         headers = {
@@ -1154,7 +1156,7 @@ def check_heart_rate_and_notify():
             child_id = child.id
 
             # ✅ Fetch the latest Fitbit heart rate data for this child
-            api_url = f"https://1a05-80-233-39-72.ngrok-free.app/fitbit_data/{child_id}"
+            api_url = f"https://db45-37-228-234-175.ngrok-free.app/fitbit_data/{child_id}"
             response = requests.get(api_url)
             data = response.json()
 
@@ -1464,23 +1466,37 @@ def log_intervention(event_id):
     if not intervention_type:
         return jsonify({"error": "intervention_type is required"}), 400
 
+    # Get the stress event
+    event = StressEvent.query.get(event_id)
+    if not event:
+        return jsonify({"error": "Stress event not found"}), 404
+
+    # Fetch the closest stress score *before or at* the time of the stress event
+    baseline_score = (
+        StressScoreLog.query
+        .filter(StressScoreLog.child_id == event.child_id)
+        .filter(StressScoreLog.timestamp <= event.timestamp)
+        .order_by(StressScoreLog.timestamp.desc())
+        .first()
+    )
+
+    # Log intervention with stress_score_at_time
     intervention = Intervention(
         stress_event_id=event_id,
         intervention_type=intervention_type,
         description=description,
-        resolved_at=datetime.utcnow()
+        stress_score_at_time=baseline_score.stress_score if baseline_score else None
     )
     db.session.add(intervention)
 
-    # Optionally mark the stress event as resolved
-    event = StressEvent.query.get(event_id)
-    if event:
-        event.resolved = True
-
+    # Optionally mark event as acknowledged
+    event.resolved = False  # it's only resolved when we confirm effectiveness
     db.session.commit()
 
-    return jsonify({"message": "Intervention logged"}), 200
-
+    return jsonify({
+        "message": "Intervention logged",
+        "stress_score_at_time": intervention.stress_score_at_time
+    }), 200
 
 @app.route('/stress_events/<int:child_id>', methods=['GET'])
 def get_stress_events(child_id):
@@ -1503,12 +1519,53 @@ def get_stress_events(child_id):
         # If no date is provided, return all events (fallback)
         events = StressEvent.query.filter_by(child_id=child_id).order_by(StressEvent.timestamp.desc()).all()
 
+    # 👉 Helper: Find stress score at or before timestamp
+    def get_stress_score_at_time(child_id, event_time):
+        return (
+            StressScoreLog.query
+            .filter(StressScoreLog.child_id == child_id)
+            .filter(StressScoreLog.timestamp <= event_time)
+            .order_by(StressScoreLog.timestamp.desc())
+            .first()
+        )
+
+    # 🔁 Build custom event list with stress score attached
+    event_data = []
+    for event in events:
+        score = get_stress_score_at_time(child_id, event.timestamp)
+
+        event_data.append({
+            "id": event.id,
+            "timestamp": event.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "trigger": event.trigger,
+            "stress_score": round(score.stress_score, 1) if score else None,
+            "interventions": [i.to_dict() for i in event.interventions] if hasattr(event, 'interventions') else []
+        })
+
     return jsonify({
-        "data": [e.to_dict() for e in events],
+        "data": event_data,
         "message": "Stress events retrieved successfully"
     })
 
-STRESS_THRESHOLD = 10
+
+def get_parent_fcm_token(child_id):
+    try:
+        # Get the parent linked to this child
+        child = Child.query.get(child_id)
+        if not child:
+            print(f"⚠️ Skipping nonexistent child ID: {child_id}")
+            return None
+
+        parent_id = child.guardian_id
+        token_entry = DeviceToken.query.filter_by(parent_id=parent_id).first()
+        return token_entry.token if token_entry else None
+
+    except Exception as e:
+        print(f"❌ Error fetching FCM token: {e}")
+        return None
+
+
+STRESS_THRESHOLD = 60
 
 
 @app.route('/calculate_and_store_stress/<int:child_id>', methods=['POST'])
@@ -1629,10 +1686,232 @@ scheduler.add_job(
     minutes=10  # Change to your preferred interval
 )
 
+def check_intervention_effectiveness():
+    print(f"⏳ Checking intervention effectiveness at {datetime.now()}")
+
+    with app.app_context():
+        # Get all interventions that haven't been marked as effective yet
+        pending = Intervention.query.filter(
+            Intervention.stress_score_after == None,
+            Intervention.stress_score_at_time != None
+        ).all()
+
+        for intervention in pending:
+            event = intervention.stress_event  # via relationship
+            child_id = event.child_id
+
+            # Look for a score AFTER the intervention timestamp
+            score_drop = (
+                StressScoreLog.query
+                .filter(StressScoreLog.child_id == child_id)
+                .filter(StressScoreLog.timestamp > event.timestamp)
+                .filter(StressScoreLog.stress_score < intervention.stress_score_at_time)
+                .order_by(StressScoreLog.timestamp.asc())
+                .first()
+            )
+
+            if score_drop:
+                print(f"✅ Found stress drop for intervention {intervention.id}!")
+                intervention.stress_score_after = score_drop.stress_score
+                db.session.commit()
+
+scheduler.add_job(
+    id="check_intervention_effectiveness",
+    func=check_intervention_effectiveness,
+    trigger="interval",
+    minutes=10
+)
+
+@app.route('/update_intervention_effectiveness/<int:intervention_id>', methods=['POST'])
+def update_intervention_effectiveness(intervention_id):
+    try:
+        intervention = Intervention.query.get(intervention_id)
+        if not intervention:
+            return jsonify({"error": "Intervention not found"}), 404
+
+        # Get child ID from the related stress event
+        stress_event = StressEvent.query.get(intervention.stress_event_id)
+        if not stress_event:
+            return jsonify({"error": "Related stress event not found"}), 404
+
+        child_id = stress_event.child_id
+
+        # Get the most recent stress score
+        latest_stress_log = (
+            StressScoreLog.query
+            .filter_by(child_id=child_id)
+            .order_by(StressScoreLog.timestamp.desc())
+            .first()
+        )
+
+        if not latest_stress_log:
+            return jsonify({"error": "No stress scores found for this child"}), 404
+
+        # Update the intervention with the new score
+        intervention.stress_score_after = latest_stress_log.stress_score
+        db.session.commit()
+
+        return jsonify({
+            "message": "Intervention effectiveness updated",
+            "stress_score_after": latest_stress_log.stress_score
+        }), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/intervention_effectiveness/<int:child_id>', methods=['GET'])
+def intervention_effectiveness(child_id):
+    # Join intervention and stress event tables
+    interventions = (
+        db.session.query(Intervention, StressEvent)
+        .join(StressEvent, Intervention.stress_event_id == StressEvent.id)
+        .filter(StressEvent.child_id == child_id)
+        .filter(Intervention.stress_score_at_time != None)
+        .filter(Intervention.stress_score_after != None)
+        .order_by(Intervention.id.desc())
+        .all()
+    )
+
+    results = []
+    for intervention, event in interventions:
+        drop = intervention.stress_score_at_time - intervention.stress_score_after
+        results.append({
+            "intervention_id": intervention.id,
+            "intervention_type": intervention.intervention_type,
+            "description": intervention.description,
+            "timestamp": event.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "score_before": intervention.stress_score_at_time,
+            "score_after": intervention.stress_score_after,
+            "drop": round(drop, 2)
+        })
+
+    return jsonify({
+        "child_id": child_id,
+        "interventions": results,
+        "message": "Intervention effectiveness retrieved"
+    }), 200
+
+@app.route('/top_interventions/<int:child_id>', methods=['GET'])
+def top_interventions(child_id):
+    # Join Intervention and StressEvent tables
+    interventions = (
+        db.session.query(Intervention.intervention_type,
+                         sa.func.avg(Intervention.stress_score_at_time - Intervention.stress_score_after).label("avg_drop"),
+                         sa.func.count(Intervention.id).label("count"))
+        .join(StressEvent, Intervention.stress_event_id == StressEvent.id)
+        .filter(StressEvent.child_id == child_id)
+        .filter(Intervention.stress_score_at_time.isnot(None))
+        .filter(Intervention.stress_score_after.isnot(None))
+        .group_by(Intervention.intervention_type)
+        .order_by(sa.desc("avg_drop"))
+        .limit(5)
+        .all()
+    )
+
+    results = [
+        {
+            "intervention_type": i[0],
+            "average_stress_drop": round(i[1], 2),
+            "times_used": i[2]
+        }
+        for i in interventions
+    ]
+
+    return jsonify({
+        "child_id": child_id,
+        "top_interventions": results,
+        "message": "Top interventions based on effectiveness"
+    }), 200
+
+
 @app.route('/list_jobs', methods=['GET'])
 def list_jobs():
     return jsonify([{"id": job.id, "next_run": str(job.next_run_time)} for job in scheduler.get_jobs()])
 
+
+@app.route('/run_intervention_check', methods=['POST'])
+def run_intervention_check():
+    check_intervention_effectiveness()
+    return jsonify({"message": "Manual effectiveness check run"}), 200
+
+def get_all_children():
+
+    children = Child.query.all()
+    return [
+        {
+            "id": child.id,
+            "name": child.name,
+            "parent_id": child.guardian_id
+        }
+        for child in children
+    ]
+
+
+def check_meal_countdowns():
+    print("🕐 Running meal countdown check...")
+
+    children = get_all_children()  # or loop over active children only
+    for child in children:
+        child_id = child["id"]
+        parent_token = get_parent_fcm_token(child["id"])
+        if not parent_token:
+            continue
+
+        last_meal_response = requests.get(f"https://db45-37-228-234-175.ngrok-free.app/get_last_meal/{child_id}")
+        if last_meal_response.status_code != 200:
+            continue
+
+        last_meal_data = last_meal_response.json()
+        hours_since = last_meal_data.get("time_since_last_meal")
+
+        # Optional: Only check between 6 AM and 10 PM
+        current_hour = datetime.now().hour
+        if current_hour < 6 or current_hour > 22:
+            continue
+
+        if hours_since >= 3 and hours_since < 4:
+            print(f"📣 Sending meal countdown alert to parent {child['parent_id']}")
+            send_fcm_notification(
+                token=parent_token,
+                title="🥪 Meal Reminder",
+                body="It's been nearly 4 hours since your child last ate. Consider offering a snack or meal."
+            )
+
+def run_scheduled_tasks():
+    with app.app_context():
+        while True:
+            print("🕐 Running meal countdown check...")
+            check_meal_countdowns()
+            time.sleep(600)
+
+@app.route('/manual_log_stress', methods=['POST'])
+def manual_log_stress():
+    data = request.get_json()
+    child_id = data.get('child_id')
+    trigger = data.get('trigger')
+    timestamp = data.get('timestamp')
+
+    if not child_id or not trigger:
+        return jsonify({"error": "Missing child_id or trigger"}), 400
+
+    try:
+        if timestamp:
+            ts = datetime.fromisoformat(timestamp)
+        else:
+            ts = datetime.now()
+
+        new_event = StressEvent(child_id=child_id, trigger=trigger, timestamp=ts)
+        db.session.add(new_event)
+        db.session.commit()
+
+        return jsonify({"message": "Manual stress event logged successfully."}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+threading.Thread(target=run_scheduled_tasks, daemon=True).start()
 
 scheduler.init_app(app)
 scheduler.start()
