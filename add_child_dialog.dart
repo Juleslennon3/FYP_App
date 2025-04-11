@@ -21,8 +21,7 @@ class _AddChildDialogState extends State<AddChildDialog> {
       isLoading = true;
     });
 
-    final String apiUrl =
-        'https://db45-37-228-234-175.ngrok-free.app/add_child';
+    final String apiUrl = 'https://8226-37-228-234-44.ngrok-free.app/add_child';
     try {
       final response = await http.post(
         Uri.parse(apiUrl),

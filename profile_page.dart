@@ -27,7 +27,7 @@ class _ProfilePageState extends State<ProfilePage> {
   // Fetch User Info
   Future<void> fetchUserInfo() async {
     final String apiUrl =
-        'https://db45-37-228-234-175.ngrok-free.app/user/email/${widget.userEmail}';
+        'https://8226-37-228-234-44.ngrok-free.app/user/email/${widget.userEmail}';
     try {
       final response = await http.get(Uri.parse(apiUrl));
 
@@ -63,7 +63,7 @@ class _ProfilePageState extends State<ProfilePage> {
   // Fetch Child Data
   Future<void> fetchChild(int userId) async {
     final String apiUrl =
-        'https://db45-37-228-234-175.ngrok-free.app/view_child/$userId';
+        'https://8226-37-228-234-44.ngrok-free.app/view_child/$userId';
     try {
       final response = await http.get(Uri.parse(apiUrl));
 
@@ -92,7 +92,7 @@ class _ProfilePageState extends State<ProfilePage> {
     if (childData == null) return;
 
     final String authApiUrl =
-        'https://db45-37-228-234-175.ngrok-free.app/authenticate_fitbit/${childData!['id']}';
+        'https://8226-37-228-234-44.ngrok-free.app/authenticate_fitbit/${childData!['id']}';
 
     try {
       print("Calling authentication endpoint: $authApiUrl");
@@ -130,7 +130,7 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<void> refreshFitbitToken() async {
     if (childData == null) return;
     final String apiUrl =
-        'https://db45-37-228-234-175.ngrok-free.app/refresh_fitbit_token/${childData!['id']}';
+        'https://8226-37-228-234-44.ngrok-free.app/refresh_fitbit_token/${childData!['id']}';
     try {
       final response = await http.post(Uri.parse(apiUrl));
       if (response.statusCode == 200) {
@@ -165,7 +165,7 @@ class _ProfilePageState extends State<ProfilePage> {
     if (childData == null) return;
 
     final String reAuthApiUrl =
-        'https://db45-37-228-234-175.ngrok-free.app/re_authorize_fitbit/${childData!['id']}';
+        'https://8226-37-228-234-44.ngrok-free.app/re_authorize_fitbit/${childData!['id']}';
 
     try {
       print("Calling re-authentication endpoint: $reAuthApiUrl");

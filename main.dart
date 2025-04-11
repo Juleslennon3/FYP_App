@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_application_1/splashScreen.dart';
+import 'package:flutter_application_1/onboarding_splash.dart';
 
 // ✅ Initialize Local Notifications Plugin
 FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
@@ -96,7 +97,7 @@ Future<void> sendTokenToServer(String token) async {
     }
 
     final response = await http.post(
-      Uri.parse("https://db45-37-228-234-175.ngrok-free.app/register_token"),
+      Uri.parse("https://8226-37-228-234-44.ngrok-free.app/register_token"),
       headers: {"Content-Type": "application/json"},
       body: jsonEncode({"parent_id": parentId, "token": token}),
     );
@@ -148,6 +149,8 @@ class MyApp extends StatelessWidget {
       initialRoute: '/',
       routes: {
         '/': (context) => SplashScreen(),
+        '/onboarding': (context) => OnboardingScreen(),
+        '/login': (context) => LoginPage(),
         '/register': (context) => RegisterPage(),
       },
     );

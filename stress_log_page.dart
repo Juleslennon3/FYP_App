@@ -29,7 +29,7 @@ class _StressLogPageState extends State<StressLogPage> {
     setState(() => isLoading = true);
     String formattedDate = DateFormat('yyyy-MM-dd').format(selectedDate);
     final url = Uri.parse(
-        'https://db45-37-228-234-175.ngrok-free.app/stress_events/${widget.childId}?date=$formattedDate');
+        'https://f099-37-228-234-175.ngrok-free.app/stress_events/${widget.childId}?date=$formattedDate');
 
     try {
       final response = await http.get(url);
@@ -50,7 +50,7 @@ class _StressLogPageState extends State<StressLogPage> {
 
   Future<void> fetchTopInterventions() async {
     final url = Uri.parse(
-        'https://db45-37-228-234-175.ngrok-free.app/top_interventions/${widget.childId}');
+        'https://f099-37-228-234-175.ngrok-free.app/top_interventions/${widget.childId}');
     try {
       final response = await http.get(url);
       if (response.statusCode == 200) {
@@ -133,7 +133,7 @@ class _StressLogPageState extends State<StressLogPage> {
 
   Future<void> logManualStressEvent(String trigger, DateTime timestamp) async {
     final url = Uri.parse(
-        "https://db45-37-228-234-175.ngrok-free.app/manual_log_stress");
+        "https://f099-37-228-234-175.ngrok-free.app/manual_log_stress");
 
     try {
       final response = await http.post(
@@ -159,7 +159,7 @@ class _StressLogPageState extends State<StressLogPage> {
   Future<void> logIntervention(
       int eventId, String intervention, String cause) async {
     final url = Uri.parse(
-        'https://db45-37-228-234-175.ngrok-free.app/log_intervention/$eventId');
+        'https://f099-37-228-234-175.ngrok-free.app/log_intervention/$eventId');
 
     final response = await http.post(
       url,
@@ -179,7 +179,7 @@ class _StressLogPageState extends State<StressLogPage> {
 
   Future<void> checkEffectivenessNow(int interventionId) async {
     final url = Uri.parse(
-        'https://db45-37-228-234-175.ngrok-free.app/update_intervention_effectiveness/$interventionId');
+        'https://f099-37-228-234-175.ngrok-free.app/update_intervention_effectiveness/$interventionId');
 
     final response = await http.post(url);
 
@@ -201,7 +201,7 @@ class _StressLogPageState extends State<StressLogPage> {
       child: ListTile(
         leading: Icon(
           hasIntervention ? Icons.check_circle : Icons.warning_amber_rounded,
-          color: hasIntervention ? Colors.green : Colors.red,
+          color: getStressIconColor(event, hasIntervention),
           size: 32,
         ),
         title: Text(
@@ -215,6 +215,11 @@ class _StressLogPageState extends State<StressLogPage> {
               Text("📊 Stress Score at time: ${event['stress_score']}"),
             if (event['trigger'] != null && event['trigger'].isNotEmpty)
               Text("Trigger: ${event['trigger']}"),
+            if (event['stress_score'] != null)
+              Text("📊 Stress Score at time: ${event['stress_score']}"),
+            if (!hasIntervention && event['during_activity'] == true)
+              Text(
+                  "⚠️ Occurred during activity (e.g., gym/PE) — may be expected."),
             if (hasIntervention) ...[
               Text("✅ Resolved with: ${intervention['intervention_type']}"),
               Text("📝 What happened: ${intervention['description']}"),
@@ -412,5 +417,11 @@ class _StressLogPageState extends State<StressLogPage> {
         ),
       ),
     );
+  }
+
+  Color getStressIconColor(Map<String, dynamic> event, bool hasIntervention) {
+    if (hasIntervention) return Colors.green;
+    if (event['during_activity'] == true) return Colors.orange; // 🟧 New
+    return Colors.red;
   }
 }

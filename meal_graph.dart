@@ -27,7 +27,7 @@ class _MealGraphState extends State<MealGraph> {
   Future<void> fetchMealData() async {
     try {
       final String apiUrl =
-          "https://db45-37-228-234-175.ngrok-free.app/getMealData/${widget.childId}";
+          "https://8226-37-228-234-44.ngrok-free.app/getMealData/${widget.childId}";
       print("🚀 Fetching meal data from: $apiUrl");
 
       final response = await http.get(Uri.parse(apiUrl));

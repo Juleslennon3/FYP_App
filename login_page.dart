@@ -17,7 +17,7 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> sendTokenToServer(String token, String parentId) async {
     final String apiUrl =
-        'https://db45-37-228-234-175.ngrok-free.app/register_token';
+        'https://8226-37-228-234-44.ngrok-free.app/register_token';
 
     try {
       final response = await http.post(
@@ -37,7 +37,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> login() async {
-    final String apiUrl = 'https://db45-37-228-234-175.ngrok-free.app/login';
+    final String apiUrl = 'https://8226-37-228-234-44.ngrok-free.app/login';
     setState(() {
       isLoading = true;
     });
@@ -67,9 +67,18 @@ class _LoginPageState extends State<LoginPage> {
         SharedPreferences prefs = await SharedPreferences.getInstance();
         await prefs.setString("parent_id", parentId);
 
+        if (rememberMe) {
+          await prefs.setString("saved_email", _emailController.text.trim());
+          await prefs.setString(
+              "saved_password", _passwordController.text.trim());
+        } else {
+          await prefs.remove("saved_email");
+          await prefs.remove("saved_password");
+        }
+
         // ✅ Fetch Child Data
         final String childApiUrl =
-            'https://db45-37-228-234-175.ngrok-free.app/view_child/$userId';
+            'https://8226-37-228-234-44.ngrok-free.app/view_child/$userId';
         final childResponse = await http.get(Uri.parse(childApiUrl));
 
         if (childResponse.statusCode == 200) {
@@ -118,6 +127,28 @@ class _LoginPageState extends State<LoginPage> {
     } finally {
       setState(() {
         isLoading = false;
+      });
+    }
+  }
+
+  bool rememberMe = false;
+
+  @override
+  void initState() {
+    super.initState();
+    loadSavedCredentials();
+  }
+
+  Future<void> loadSavedCredentials() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    final savedEmail = prefs.getString("saved_email");
+    final savedPassword = prefs.getString("saved_password");
+
+    if (savedEmail != null && savedPassword != null) {
+      setState(() {
+        _emailController.text = savedEmail;
+        _passwordController.text = savedPassword;
+        rememberMe = true;
       });
     }
   }
@@ -180,6 +211,17 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                         ),
                         obscureText: true,
+                      ),
+                      CheckboxListTile(
+                        title: Text("Remember Me"),
+                        value: rememberMe,
+                        onChanged: (value) {
+                          setState(() {
+                            rememberMe = value!;
+                          });
+                        },
+                        controlAffinity: ListTileControlAffinity.leading,
+                        contentPadding: EdgeInsets.zero,
                       ),
                       SizedBox(height: 20),
                       isLoading

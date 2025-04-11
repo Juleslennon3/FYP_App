@@ -27,7 +27,7 @@ class _StressGraphState extends State<StressGraph> {
     setState(() => isLoading = true);
 
     final String apiUrl =
-        'https://db45-37-228-234-175.ngrok-free.app/get_stress_scores/${widget.childId}';
+        'https://8226-37-228-234-44.ngrok-free.app/get_stress_scores/${widget.childId}';
 
     try {
       final response = await http.get(Uri.parse(apiUrl));

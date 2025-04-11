@@ -16,6 +16,8 @@ import 'package:http/http.dart' as http;
 import 'overall_score_graph.dart';
 import 'stress_log_page.dart';
 import 'dart:async';
+import 'interventions_page.dart';
+import 'package:flutter_application_1/interventions_page.dart';
 
 class HomePage extends StatefulWidget {
   final String userEmail;
@@ -32,7 +34,7 @@ class HomePage extends StatefulWidget {
   _HomePageState createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   int _selectedIndex = 0;
   Map<String, dynamic>? fitbitData;
   String errorMessage = '';
@@ -52,6 +54,12 @@ class _HomePageState extends State<HomePage> {
   int restingHeartRate = 0;
   List<double> weeklySleepData = List.filled(7, 0.0);
   String mealCountdownText = "";
+  int minutesSinceLastMeal = -1;
+  double mealCountdownPercentage = 1.0;
+  Color mealCountdownColor = Colors.green;
+  String mealCountdownTextShort = "";
+  late AnimationController _blinkerController;
+  late Animation<double> _blinkerOpacity;
 
   @override
   void initState() {
@@ -61,6 +69,14 @@ class _HomePageState extends State<HomePage> {
     fetchTimeSinceLastMeal();
     updateMealCountdownText();
     startMealCountdownTicker();
+
+    _blinkerController = AnimationController(
+      vsync: this,
+      duration: Duration(milliseconds: 800),
+    )..repeat(reverse: true); // Makes it blink
+
+    _blinkerOpacity =
+        Tween<double>(begin: 1.0, end: 0.2).animate(_blinkerController);
   }
 
   void startMealCountdownTicker() {
@@ -72,6 +88,8 @@ class _HomePageState extends State<HomePage> {
         timer.cancel(); // Stop if widget disposed
         return;
       }
+
+      setState(() {});
       updateMealCountdownText();
     });
   }
@@ -93,7 +111,7 @@ class _HomePageState extends State<HomePage> {
       return;
     }
 
-    final lastMealTime = now.subtract(Duration(hours: timeSinceLastMeal));
+    final lastMealTime = now.subtract(Duration(minutes: timeSinceLastMeal));
     final nextMealTime = lastMealTime.add(Duration(hours: 4));
     final remaining = nextMealTime.difference(now);
 
@@ -138,9 +156,9 @@ class _HomePageState extends State<HomePage> {
   // Fetch Fitbit Data
   Future<void> fetchFitbitData() async {
     final String fitbitApiUrl =
-        'https://db45-37-228-234-175.ngrok-free.app/fitbit_data/${widget.childId}';
+        'https://8226-37-228-234-44.ngrok-free.app/fitbit_data/${widget.childId}';
     final String mealApiUrl =
-        'https://db45-37-228-234-175.ngrok-free.app/get_last_meal/${widget.childId}';
+        'https://8226-37-228-234-44.ngrok-free.app/get_last_meal/${widget.childId}';
 
     setState(() {
       isLoading = true;
@@ -196,12 +214,33 @@ class _HomePageState extends State<HomePage> {
           // Fetch meal data
           if (mealResponse.statusCode == 200) {
             final decodedMealData = jsonDecode(mealResponse.body);
-            timeSinceLastMeal = decodedMealData['time_since_last_meal'] ?? 0;
+            minutesSinceLastMeal =
+                decodedMealData['minutes_since_last_meal'] ?? 0;
+            mealScore = calculateMealScore(minutesSinceLastMeal);
+            mealCountdownPercentage = mealScore / 25;
+            int remainingMinutes = 240 - minutesSinceLastMeal;
+
+            if (remainingMinutes >= 120) {
+              mealCountdownColor = Colors.green;
+            } else if (remainingMinutes >= 60) {
+              mealCountdownColor = Colors.orange;
+            } else {
+              mealCountdownColor = Colors.red;
+            }
+
+            setState(() {
+              final remainingMinutes = 240 - minutesSinceLastMeal;
+              final hours = remainingMinutes ~/ 60;
+              final minutes = remainingMinutes % 60;
+              mealCountdownTextShort = "$hours h $minutes m";
+            });
+
+            "${(mealCountdownPercentage * 100).toInt()}%";
           } else {
-            timeSinceLastMeal = 24;
+            minutesSinceLastMeal = 240; // fallback to 4 hours
+            mealScore = calculateMealScore(minutesSinceLastMeal);
           }
 
-          mealScore = calculateMealScore(timeSinceLastMeal);
           heartStressScore = calculateHeartStress(heartRate);
 
           overallScore =
@@ -229,7 +268,7 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> saveStressScore() async {
     final String apiUrl =
-        'https://db45-37-228-234-175.ngrok-free.app/save_stress_score';
+        'https://8226-37-228-234-44.ngrok-free.app/save_stress_score';
 
     try {
       final response = await http.post(
@@ -254,7 +293,7 @@ class _HomePageState extends State<HomePage> {
 
   Future<List<double>> fetchWeeklySleepData() async {
     final String sleepHistoryApiUrl =
-        'https://db45-37-228-234-175.ngrok-free.app/get_weekly_sleep/${widget.childId}';
+        'https://8226-37-228-234-44.ngrok-free.app/get_weekly_sleep/${widget.childId}';
 
     try {
       final response = await http.get(Uri.parse(sleepHistoryApiUrl));
@@ -359,7 +398,7 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> fetchTimeSinceLastMeal() async {
     final String apiUrl =
-        'https://db45-37-228-234-175.ngrok-free.app/get_last_meal/${widget.childId}';
+        'https://8226-37-228-234-44.ngrok-free.app/get_last_meal/${widget.childId}';
 
     try {
       final response = await http.get(Uri.parse(apiUrl));
@@ -367,12 +406,11 @@ class _HomePageState extends State<HomePage> {
       if (response.statusCode == 200) {
         final decodedData = jsonDecode(response.body);
         setState(() {
-          timeSinceLastMeal =
-              decodedData['time_since_last_meal'] ?? -1; // -1 means no data
+          timeSinceLastMeal = decodedData['minutes_since_last_meal'] ?? -1;
         });
       } else {
         setState(() {
-          timeSinceLastMeal = -1; // No data or error
+          timeSinceLastMeal = -1;
         });
       }
     } catch (e) {
@@ -419,7 +457,7 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _registerTokenToBackend(String token, String parentId) async {
     final String apiUrl =
-        'https://db45-37-228-234-175.ngrok-free.app/register_token';
+        'https://8226-37-228-234-44.ngrok-free.app/register_token';
 
     try {
       final response = await http.post(
@@ -444,7 +482,7 @@ class _HomePageState extends State<HomePage> {
 
   Future<Map<String, dynamic>> fetchGraphData() async {
     final String apiUrl =
-        'https://db45-37-228-234-175.ngrok-free.app/generate_graph_data/${widget.childId}';
+        'https://8226-37-228-234-44.ngrok-free.app/generate_graph_data/${widget.childId}';
 
     try {
       final response = await http.get(Uri.parse(apiUrl));
@@ -512,14 +550,14 @@ class _HomePageState extends State<HomePage> {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => ActivityLogPage(childId: widget.childId),
+          builder: (context) => StressLogPage(childId: widget.childId),
         ),
       );
     } else if (index == 3) {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => StressLogPage(childId: widget.childId),
+          builder: (context) => InterventionsPage(childId: widget.childId),
         ),
       );
     }
@@ -566,11 +604,13 @@ class _HomePageState extends State<HomePage> {
             label: 'Calendar',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.list),
-            label: 'Activity Log',
+            icon: Icon(Icons.local_fire_department),
+            label: 'Stress Log',
           ),
           BottomNavigationBarItem(
-              icon: Icon(Icons.local_fire_department), label: 'Stress Log'),
+            icon: Icon(Icons.psychology_alt),
+            label: 'Interventions',
+          ),
         ],
         currentIndex: _selectedIndex,
         selectedItemColor: Colors.blue,
@@ -578,6 +618,12 @@ class _HomePageState extends State<HomePage> {
         onTap: _onItemTapped,
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _blinkerController.dispose();
+    super.dispose();
   }
 
   // Build Home Page
@@ -705,7 +751,7 @@ class _HomePageState extends State<HomePage> {
 
                   try {
                     final String mealApiUrl =
-                        "https://db45-37-228-234-175.ngrok-free.app/getMealData/${widget.childId}";
+                        "https://8226-37-228-234-44.ngrok-free.app/getMealData/${widget.childId}";
                     final response = await http.get(Uri.parse(mealApiUrl));
 
                     print("🔵 Response Code: ${response.statusCode}");
@@ -779,14 +825,123 @@ class _HomePageState extends State<HomePage> {
           "Current HR: ${heartRate} BPM",
           "Resting HR: ${restingHeartRate} BPM"
         ]),
-        _buildDataCard(
-          title: "Meal Timing",
-          icon: Icons.fastfood,
-          data: [
-            "Last Meal: $timeSinceLastMeal hours ago",
-            "Fullness Score: ${(mealScore * 4).toInt()}%",
-            getMealCountdownText(),
-          ],
+        Card(
+          margin: EdgeInsets.symmetric(vertical: 10),
+          elevation: 4,
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Row(
+              children: [
+                // Left column with icon and text
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.fastfood, size: 30, color: Colors.blue),
+                          SizedBox(width: 8),
+                          Text(
+                            "Meal Timing",
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: 12),
+                      Text(
+                        "Last Meal: ${minutesSinceLastMeal ~/ 60}h ${minutesSinceLastMeal % 60}m ago",
+                        style: TextStyle(fontSize: 16),
+                      ),
+                      Text(
+                        "Fullness Score: ${(mealScore / 25 * 100).toInt()}%",
+                        style: TextStyle(fontSize: 16),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Right column with countdown dial + text
+                Column(
+                  children: [
+                    SizedBox(
+                      height: 80,
+                      width: 80,
+                      child: CustomPaint(
+                        painter: MealCountdownDialPainter(
+                          mealCountdownPercentage,
+                          mealCountdownColor,
+                        ),
+                      ),
+                    ),
+                    SizedBox(height: 8),
+                    minutesSinceLastMeal >= 180
+                        ? FadeTransition(
+                            opacity: _blinkerOpacity,
+                            child: Text(
+                              "⏳ $mealCountdownTextShort",
+                              style: TextStyle(
+                                  fontSize: 14, fontWeight: FontWeight.bold),
+                            ),
+                          )
+                        : Text(
+                            "⏳ $mealCountdownTextShort",
+                            style: TextStyle(
+                                fontSize: 14, fontWeight: FontWeight.bold),
+                          ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMealCountdownDial() {
+    final now = DateTime.now();
+
+    if (now.hour < 6 || minutesSinceLastMeal < 0) {
+      return Text("⏰ Meal countdown starts at 6 AM");
+    }
+
+    final lastMealTime = now.subtract(Duration(minutes: minutesSinceLastMeal));
+    final nextMealTime = lastMealTime.add(Duration(hours: 4));
+    final remaining = nextMealTime.difference(now);
+
+    final totalSeconds = Duration(hours: 4).inSeconds;
+    final secondsLeft = remaining.inSeconds.clamp(0, totalSeconds);
+
+    final percentage = secondsLeft / totalSeconds;
+
+    final hours = remaining.inHours;
+    final minutes = remaining.inMinutes.remainder(60);
+
+    Color dialColor;
+    if (percentage > 0.5) {
+      dialColor = Colors.green;
+    } else if (percentage > 0.15) {
+      dialColor = Colors.orange;
+    } else {
+      dialColor = Colors.red;
+    }
+
+    return Column(
+      children: [
+        SizedBox(
+          height: 100,
+          width: 100,
+          child: CustomPaint(
+            painter: MealCountdownDialPainter(percentage, dialColor),
+          ),
+        ),
+        SizedBox(height: 8),
+        Text(
+          "⏳ ${hours}h ${minutes}m until next meal",
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
         ),
       ],
     );
@@ -1044,6 +1199,7 @@ class _HomePageState extends State<HomePage> {
     required String title,
     required IconData icon,
     required List<String> data,
+    Widget? trailing, // NEW PARAM
   }) {
     return Card(
       margin: EdgeInsets.symmetric(vertical: 10),
@@ -1051,6 +1207,7 @@ class _HomePageState extends State<HomePage> {
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Icon(icon, size: 40, color: Colors.blue),
             SizedBox(width: 16),
@@ -1074,6 +1231,10 @@ class _HomePageState extends State<HomePage> {
                 ],
               ),
             ),
+            if (trailing != null) ...[
+              SizedBox(width: 16),
+              trailing,
+            ],
           ],
         ),
       ),
@@ -1336,8 +1497,10 @@ double calculateSleepScore(
   return score.clamp(0, 100);
 }
 
-double calculateMealScore(int hoursSinceMeal) {
-  return (25 - (hoursSinceMeal / 24) * 25).clamp(0, 25);
+double calculateMealScore(int minutesSinceMeal) {
+  // Meal score = full (25) at 0 mins, drops linearly to 0 at 240 mins (4 hours)
+  double scaled = 25 - (minutesSinceMeal / 240) * 25;
+  return scaled.clamp(0, 25);
 }
 
 double calculateHeartStress(int heartRate) {
@@ -1363,4 +1526,37 @@ Color getMealTrafficColor(double mealScoreOutOf25) {
 double calculateOverallScore(double sleep, double heart, double meal) {
   double originalScore = (sleep * 0.5) + (heart * 0.25) + (meal * 0.25);
   return 100 - originalScore;
+}
+
+class MealCountdownDialPainter extends CustomPainter {
+  final double percentage;
+  final Color color;
+
+  MealCountdownDialPainter(this.percentage, this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final Paint basePaint = Paint()
+      ..color = Colors.grey[300]!
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 10;
+
+    final Paint arcPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 10
+      ..strokeCap = StrokeCap.round;
+
+    final Offset center = Offset(size.width / 2, size.height / 2);
+    final double radius = size.width / 2;
+    final Rect arcRect = Rect.fromCircle(center: center, radius: radius);
+    final double startAngle = -pi / 2;
+    final double sweepAngle = 2 * pi * percentage;
+
+    canvas.drawCircle(center, radius, basePaint);
+    canvas.drawArc(arcRect, startAngle, sweepAngle, false, arcPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
